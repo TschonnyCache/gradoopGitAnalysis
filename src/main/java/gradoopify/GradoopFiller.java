@@ -1,6 +1,7 @@
 package gradoopify;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -18,6 +19,7 @@ import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.gradoop.common.model.impl.pojo.Edge;
 import org.gradoop.common.model.impl.pojo.Vertex;
 import org.gradoop.common.model.impl.properties.Properties;
 import org.gradoop.flink.util.GradoopFlinkConfig;
@@ -28,6 +30,7 @@ public class GradoopFiller implements ProgramDescription {
 	public static final String userVertexLabel = "user";
 	public static final String branchVertexLabel = "branch";
 	public static final String commitVertexLabel = "commit";
+	public static final String commitToUserEdgeLabel ="commitToUserEdge";
 	private GradoopFlinkConfig config;
 
 	public GradoopFiller(GradoopFlinkConfig config) {
@@ -57,6 +60,12 @@ public class GradoopFiller implements ProgramDescription {
 		props.set("message",commit.getFullMessage());
 		return config.getVertexFactory().createVertex(commitVertexLabel,props);
 	}
+	
+	public Edge createEdgeToUser(Vertex commit,List<Vertex> users) {
+		
+		return config.getEdgeFactory().createEdge(commitToUserEdgeLabel, null, null);
+	}
+
 
 	public static void main(String[] args) {
 
@@ -65,24 +74,31 @@ public class GradoopFiller implements ProgramDescription {
 		GradoopFiller gf = new GradoopFiller(gradoopConf);
 		LoadJGit ljg = new LoadJGit();
 		Repository repository = ljg.openRepo("/Users/jonas/Documents/Code/spark");
+		List<Vertex> userVertices = new ArrayList<Vertex>();
+		List<Vertex> commitVertices = new ArrayList<Vertex>();
+		List<Vertex> branchVertices = new ArrayList<Vertex>();
+		List<Edge> edges = new ArrayList<Edge>();
+		
 		Map<String, Ref> mapRefs = ljg.getAllHeadsFromRepo(repository);
 		try {
 			List<Ref> branchs = new Git(repository).branchList().setListMode( ListMode.ALL ).call();
 			for(Ref branch:branchs){
 				Vertex v = gf.createVertexFromBranch(branch);
+				branchVertices.add(v);
 			}
 		} catch (GitAPIException e1) {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
-		
 
 		try (RevWalk revWalk = new RevWalk(repository)) {
 			ObjectId commitId;
 			commitId = repository.resolve("refs/heads/master");
 			revWalk.markStart(revWalk.parseCommit(commitId));
 			Vertex vc = gf.createVertexFromCommit(revWalk.next());
+			commitVertices.add(vc);
 			Vertex vu = gf.createVertexFromUser(revWalk.next().getAuthorIdent());
+			userVertices.add(vu);
 			System.out.println(vu);
 		} catch (RevisionSyntaxException e) {
 			// TODO Auto-generated catch block
@@ -96,6 +112,9 @@ public class GradoopFiller implements ProgramDescription {
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
+		}
+		for(Vertex commit:commitVertices) {
+			Edge e = gf.createEdgeToUser(commit, userVertices);
 		}
 	}
 
