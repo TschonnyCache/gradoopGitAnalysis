@@ -22,10 +22,10 @@ import org.gradoop.common.model.impl.pojo.Edge;
 import org.gradoop.common.model.impl.pojo.Vertex;
 import org.gradoop.common.model.impl.properties.Properties;
 import org.gradoop.flink.io.api.DataSink;
+import org.gradoop.flink.io.impl.dot.DOTDataSink;
 import org.gradoop.flink.io.impl.json.JSONDataSink;
-import org.gradoop.flink.io.impl.json.JSONDataSource;
-import org.gradoop.flink.model.impl.GraphCollection;
 import org.gradoop.flink.model.impl.LogicalGraph;
+import org.gradoop.flink.model.impl.operators.aggregation.functions.count.VertexCount;
 import org.gradoop.flink.util.GradoopFlinkConfig;
 
 import io.LoadJGit;
@@ -69,7 +69,7 @@ public class GradoopFiller implements ProgramDescription {
 		Properties props = new Properties();
 		props.set("name", commit.name());
 		props.set("time", commit.getCommitTime());
-		props.set("message", commit.getFullMessage());
+		props.set("message", commit.getShortMessage());
 		Vertex v = config.getVertexFactory().createVertex(commitVertexLabel, props);
 		vertices.put(commit.name(), v);
 		return v;
@@ -94,7 +94,8 @@ public class GradoopFiller implements ProgramDescription {
 		Repository repository = ljg.openRepo(pathToGitRepo);
 		Map<String, Ref> mapRefs = ljg.getAllHeadsFromRepo(repository);
 		try {
-			List<Ref> branchs = new Git(repository).branchList().setListMode(ListMode.ALL).call();
+			Git git = new Git(repository);
+			List<Ref> branchs = git.branchList().setListMode(ListMode.ALL).call();
 			for (Ref branch : branchs) {
 				// System.out.println("\n\n ===== Writing branch: " +
 				// branch.getName() + " =======\n\n");
@@ -125,7 +126,7 @@ public class GradoopFiller implements ProgramDescription {
 					e.printStackTrace();
 				}
 			}
-
+			git.close();
 		} catch (GitAPIException e1) {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
@@ -143,10 +144,6 @@ public class GradoopFiller implements ProgramDescription {
 		sink.write(graph);
 		env.execute();
 		
-		JSONDataSource dataSource = new JSONDataSource("./json/graphs.json", "./json/vertices.json", "./json/edges.json",gradoopConf);
-
-	    GraphCollection graphCollection = dataSource.getGraphCollection();
-	    graphCollection.getVertices().print();
 	}
 
 	public String getDescription() {
