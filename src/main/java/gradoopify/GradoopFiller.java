@@ -1,6 +1,7 @@
 package gradoopify;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,14 +19,15 @@ import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.gradoop.common.model.impl.id.GradoopId;
 import org.gradoop.common.model.impl.pojo.Edge;
+import org.gradoop.common.model.impl.pojo.GraphHead;
+import org.gradoop.common.model.impl.pojo.GraphHeadFactory;
 import org.gradoop.common.model.impl.pojo.Vertex;
 import org.gradoop.common.model.impl.properties.Properties;
 import org.gradoop.flink.io.api.DataSink;
-import org.gradoop.flink.io.impl.dot.DOTDataSink;
 import org.gradoop.flink.io.impl.json.JSONDataSink;
 import org.gradoop.flink.model.impl.LogicalGraph;
-import org.gradoop.flink.model.impl.operators.aggregation.functions.count.VertexCount;
 import org.gradoop.flink.util.GradoopFlinkConfig;
 
 import io.LoadJGit;
@@ -46,31 +48,43 @@ public class GradoopFiller implements ProgramDescription {
 	}
 
 	public Vertex createVertexFromUser(PersonIdent user) {
+		Vertex v = vertices.get(user.getEmailAddress());
+		if(v != null){
+			return v;
+		}
 		Properties props = new Properties();
 		props.set("name", user.getName());
 		props.set("email", user.getEmailAddress());
 		props.set("when", user.getWhen().getTime());
 		props.set("timezone", user.getTimeZone().getRawOffset());
 		props.set("timezoneOffset", user.getTimeZoneOffset());
-		Vertex v = config.getVertexFactory().createVertex(userVertexLabel, props);
+		v = config.getVertexFactory().createVertex(userVertexLabel, props);
 		vertices.put(user.getEmailAddress(), v);
 		return v;
 	}
 
 	public Vertex createVertexFromBranch(Ref branch) {
+		Vertex v = vertices.get(branch.getName());
+		if(v != null){
+			return v;
+		}
 		Properties props = new Properties();
 		props.set("name", branch.getName());
-		Vertex v = config.getVertexFactory().createVertex(branchVertexLabel, props);
+		v = config.getVertexFactory().createVertex(branchVertexLabel, props);
 		vertices.put(branch.getName(), v);
 		return v;
 	}
 
 	public Vertex createVertexFromCommit(RevCommit commit) {
+		Vertex v = vertices.get(commit.name());
+		if(v != null){
+			return v;
+		}
 		Properties props = new Properties();
 		props.set("name", commit.name());
 		props.set("time", commit.getCommitTime());
 		props.set("message", commit.getShortMessage());
-		Vertex v = config.getVertexFactory().createVertex(commitVertexLabel, props);
+		v = config.getVertexFactory().createVertex(commitVertexLabel, props);
 		vertices.put(commit.name(), v);
 		return v;
 	}
@@ -86,6 +100,10 @@ public class GradoopFiller implements ProgramDescription {
 		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, vertices.get(commit.getName()).getId(),
 				vertices.get(branch.getName()).getId());
 		edges.put(commit.getName() + "->" + branch.getName(), e);
+		if(commit.getName().equals("88b24790357370ff5012856d02c2a785b1720cec")){
+			System.out.println(e.getId() + "     " + branch.getName());
+			System.out.println("vid: " + vertices.get(commit.getName()).getId());
+		}
 		return e;
 	}
 
@@ -131,7 +149,7 @@ public class GradoopFiller implements ProgramDescription {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
-		LogicalGraph graph = LogicalGraph.fromCollections(vertices.values(), edges.values(), config);
+		LogicalGraph graph = LogicalGraph.fromCollections(new GraphHead(new GradoopId(), "test", new Properties()), vertices.values(), edges.values(), config);
 		return graph;
 	}
 
