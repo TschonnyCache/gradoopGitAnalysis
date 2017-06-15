@@ -9,7 +9,10 @@ import org.apache.flink.api.java.ExecutionEnvironment;
 import org.gradoop.common.model.impl.pojo.Edge;
 import org.gradoop.common.model.impl.pojo.GraphHead;
 import org.gradoop.common.model.impl.pojo.Vertex;
+import org.gradoop.flink.io.api.DataSink;
+import org.gradoop.flink.io.impl.json.JSONDataSink;
 import org.gradoop.flink.model.api.functions.TransformationFunction;
+import org.gradoop.flink.model.impl.GraphCollection;
 import org.gradoop.flink.model.impl.LogicalGraph;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.count.VertexCount;
 import org.gradoop.flink.util.GradoopFlinkConfig;
@@ -18,11 +21,11 @@ import gradoopify.GradoopFiller;
 
 public class GitAnalyzer implements Serializable{
 
-	/**
-	 * 
-	 */
 	private static final long serialVersionUID = 5400004312044745133L;
-
+	
+	public static final String branchGraphHeadLabel = "branch";
+	
+	
 	public LogicalGraph createUserCount(LogicalGraph graph){
 		LogicalGraph userSubGraph = graph.subgraph(new FilterFunction<Vertex>(){
 
@@ -57,7 +60,7 @@ public class GitAnalyzer implements Serializable{
 	 * each of these branch subgraphs then contains all the commits belonging to the branch
 	 * and the corresponding edges between the commits and the branch vertices.
 	 */
-	public LogicalGraph transforBranchesToSubgraphs(LogicalGraph graph) throws Exception{
+	public GraphCollection transformBranchesToSubgraphs(LogicalGraph graph,GradoopFlinkConfig config) throws Exception{
 		LogicalGraph onlyBranchVerticesGraph = graph.subgraph(new FilterFunction<Vertex>() {
 
 			/**
@@ -85,7 +88,7 @@ public class GitAnalyzer implements Serializable{
 		});
 		List<Vertex> allBranches = onlyBranchVerticesGraph.getVertices().collect();
 		List<Edge> allEdges = graph.getEdges().collect();
-		List<LogicalGraph> branchSubgraphs = new ArrayList<LogicalGraph>();
+		List<GraphHead> branchSubgraphsHeads = new ArrayList<GraphHead>();
 		for (Vertex branch : allBranches){
 			LogicalGraph currentBranchSubGraph = graph.subgraph(new FilterFunction<Vertex>() {
 
@@ -131,15 +134,19 @@ public class GitAnalyzer implements Serializable{
 
 				@Override
 				public GraphHead apply(GraphHead current, GraphHead transformed) {
-					transformed.setLabel(branch.getPropertyValue("name").getString());
+					transformed.setLabel(branchGraphHeadLabel);
+					transformed.setProperty("name",branch.getPropertyValue("name").getString());
 					return transformed;
 				}
 				
 			});
 			System.out.println("Label after: " + currentBranchSubGraph.getGraphHead().collect().get(0).getLabel());
-			branchSubgraphs.add(currentBranchSubGraph);
+			branchSubgraphsHeads.add(currentBranchSubGraph.getGraphHead().collect().get(0));
+
 		}
-		return graph;
+		
+		return GraphCollection.fromCollections(branchSubgraphsHeads, graph.getVertices().collect(), graph.getEdges().collect(), config);
+		
 	}
 	
 	public static void main(String[] args) throws Exception {
@@ -150,7 +157,9 @@ public class GitAnalyzer implements Serializable{
 		GitAnalyzer ga = new GitAnalyzer();
 //		LogicalGraph userCountGraph = ga.createUserCount(graph);
 //		userCountGraph.getGraphHead().print();
-		LogicalGraph branchGroupedGraph = ga.transforBranchesToSubgraphs(graph);
-		
+		GraphCollection branchGroupedGraph = ga.transformBranchesToSubgraphs(graph,gradoopConf);
+		DataSink jsonSink = new JSONDataSink("./out", gradoopConf);
+		branchGroupedGraph.writeTo(jsonSink);
+		env.execute();
 	}
 }
