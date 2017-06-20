@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.flink.api.common.ProgramDescription;
+import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ListBranchCommand.ListMode;
@@ -107,6 +108,38 @@ public class GradoopFiller implements ProgramDescription {
 		return e;
 	}
 
+	public Vertex getUserVertex(LogicalGraph graph, String userMail) throws Exception {
+		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
+
+			@Override
+			public boolean filter(Vertex v) throws Exception {
+				if (v.getLabel().equals(GradoopFiller.userVertexLabel)) {
+					if (v.getPropertyValue("email").equals(userMail)) {
+						return true;
+					}
+				}
+				return false;
+			}
+		});
+		return filtered.getVertices().collect().get(0);
+	}
+	
+	public Vertex getBranchVertex(LogicalGraph graph,String name) throws Exception{
+		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
+
+			@Override
+			public boolean filter(Vertex v) throws Exception {
+				if (v.getLabel().equals(GradoopFiller.branchVertexLabel)) {
+					if (v.getPropertyValue("name").equals(name)) {
+						return true;
+					}
+				}
+				return false;
+			}
+		});
+		return filtered.getVertices().collect().get(0);
+	}
+	
 	public LogicalGraph parseGitRepoIntoGraph(String pathToGitRepo) {
 		LoadJGit ljg = new LoadJGit();
 		Repository repository = ljg.openRepo(pathToGitRepo);
