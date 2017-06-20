@@ -110,7 +110,7 @@ public class GradoopFiller implements ProgramDescription {
 		return e;
 	}
 
-	public Vertex getUserVertex(LogicalGraph graph, String userMail) throws Exception {
+	public Vertex getUserVertexFromGraph(LogicalGraph graph, String userMail) throws Exception {
 		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
 
 			@Override
@@ -123,10 +123,16 @@ public class GradoopFiller implements ProgramDescription {
 				return false;
 			}
 		});
-		return filtered.getVertices().collect().get(0);
+		Vertex vertex;
+		try {
+			vertex = filtered.getVertices().collect().get(0);
+		} catch (Exception IndexOutOfBoundsException ) {
+			vertex = null;
+		}
+		return vertex;
 	}
 	
-	public Vertex getBranchVertex(LogicalGraph graph,String name) throws Exception{
+	public Vertex getBranchVertexFromGraph(LogicalGraph graph,String name){
 		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
 
 			@Override
@@ -139,7 +145,13 @@ public class GradoopFiller implements ProgramDescription {
 				return false;
 			}
 		});
-		return filtered.getVertices().collect().get(0);
+		Vertex vertex;
+		try {
+			vertex = filtered.getVertices().collect().get(0);
+		} catch (Exception IndexOutOfBoundsException ) {
+			vertex = null;
+		}
+		return vertex;
 	}
 	
 	public LogicalGraph parseGitRepoIntoGraph(String pathToGitRepo) {
