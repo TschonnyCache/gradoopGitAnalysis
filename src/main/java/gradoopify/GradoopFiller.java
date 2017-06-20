@@ -31,6 +31,7 @@ import org.gradoop.flink.model.impl.GraphCollection;
 import org.gradoop.flink.model.impl.LogicalGraph;
 import org.gradoop.flink.util.GradoopFlinkConfig;
 
+
 import analysis.GitAnalyzer;
 import io.LoadJGit;
 
@@ -45,6 +46,9 @@ public class GradoopFiller implements ProgramDescription {
 
 	private HashMap<String, Vertex> vertices = new HashMap<String, Vertex>();
 	private HashMap<String, Edge> edges = new HashMap<String, Edge>();
+	
+	private DataSet<Vertex> verticesDataSet = null;
+	private DataSet edgesDataSet = null;
 
 	public GradoopFiller(GradoopFlinkConfig config, GitAnalyzer analyzer) {
 		this.config = config;
@@ -110,68 +114,52 @@ public class GradoopFiller implements ProgramDescription {
 		edges.put(commit.getName() + "->" + branch.getName(), e);
 		return e;
 	}
-
-
-	public Vertex getCommitVertex(LogicalGraph graph, String name) throws Exception {
-		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
-
-			@Override
-			public boolean filter(Vertex v) throws Exception {
-				if (v.getLabel().equals(GradoopFiller.commitVertexLabel)) {
-					if (v.getPropertyValue("name").equals(name)) {
-						return true;
-					}
-				}
-				return false;
-			}
-		});
-		if(filtered.getVertices().collect().size() == 0 || filtered.getVertices().collect().size() > 1){
-			return null;
-		}
-		return filtered.getVertices().collect().get(0);
-	}
-
-	public Vertex getUserVertex(LogicalGraph graph, String userMail) throws Exception {
-		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
-
-			@Override
-			public boolean filter(Vertex v) throws Exception {
-				if (v.getLabel().equals(GradoopFiller.userVertexLabel)) {
-					if (v.getPropertyValue("email").equals(userMail)) {
-						return true;
-					}
-				}
-				return false;
-			}
-		});
-		if(filtered.getVertices().collect().size() == 0 || filtered.getVertices().collect().size() > 1){
-			return null;
-		}
-		return filtered.getVertices().collect().get(0);
-	}
 	
-	public Vertex getBranchVertex(LogicalGraph graph,String name) throws Exception{
+	public Vertex getVertexFromGraph(LogicalGraph graph,String identifier) throws Exception{
 		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
 
 			@Override
 			public boolean filter(Vertex v) throws Exception {
 				if (v.getLabel().equals(GradoopFiller.branchVertexLabel)) {
-					if (v.getPropertyValue("name").equals(name)) {
+					if (v.hasProperty("name") && v.getPropertyValue("name").equals(identifier)) {
+						return true;
+					} else if (v.hasProperty("email") && v.getPropertyValue("email").equals(identifier)){
 						return true;
 					}
 				}
 				return false;
 			}
 		});
-		if(filtered.getVertices().collect().size() == 0 || filtered.getVertices().collect().size() > 1){
+		if(filtered == null || filtered.getVertices().count()==0 || filtered.getVertices().count()>1){
+			System.err.println("Too many or no vertices found in given graph! Returning null");
 			return null;
 		}
 		return filtered.getVertices().collect().get(0);
 	}
 	
+	public Vertex getVertexFromDataSet(String identifier) throws Exception{
+		DataSet<Vertex> filtered = verticesDataSet.filter(new FilterFunction<Vertex>() {
+
+			@Override
+			public boolean filter(Vertex v) throws Exception {
+				if(v.hasProperty("name") && v.getPropertyValue("name").equals(identifier)){
+					return true;
+				}else if(v.hasProperty("email") && v.getPropertyValue("email").equals(identifier)){
+					return true;
+				}
+				return false;
+			}
+		});
+		if (filtered == null || filtered.count() == 0 || filtered.count() > 1) {
+			System.err.println("Too many or no vertices found in vertivesDataSet! Returning null");
+			return null;
+		}
+		return filtered.collect().get(0);
+	}
+	
 	public DataSet<Vertex> addUserVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
 		PersonIdent user = c.getAuthorIdent();
-		Vertex v = getUserVertex(g, user.getEmailAddress());
+		Vertex v = getVertexFromGraph(g, user.getEmailAddress());
 		if(v == null){
             Properties props = new Properties();
             props.set("name", user.getName());
@@ -185,7 +173,7 @@ public class GradoopFiller implements ProgramDescription {
 	}
 
 	public DataSet<Vertex> addBranchVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
-		Vertex v = getBranchVertex(g, c.getName());
+		Vertex v = getVertexFromGraph(g, c.getName());
 		if(v == null){
             Properties props = new Properties();
             props.set("name", c.getName());
@@ -195,7 +183,7 @@ public class GradoopFiller implements ProgramDescription {
 	}
 
 	public DataSet<Vertex> addCommitVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
-		Vertex v = getCommitVertex(g, c.getName());
+		Vertex v = getVertexFromGraph(g, c.getName());
 		if(v == null){
             Properties props = new Properties();
             props.set("name", c.name());
@@ -207,15 +195,15 @@ public class GradoopFiller implements ProgramDescription {
 	}
 	
 	public DataSet<Edge> addEdgeToBranchToDataSet(RevCommit c, Ref branch, LogicalGraph g, DataSet<Edge> ds) throws Exception{
-		Vertex source = getCommitVertex(g, c.getName());
-		Vertex target = getBranchVertex(g, branch.getName());
+		Vertex source = getVertexFromGraph(g, c.getName());
+		Vertex target = getVertexFromGraph(g, branch.getName());
 		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, source.getId(), target.getId());
 		return addEdgeToDataSet(e, ds);
 	}
 	
 	public DataSet<Edge> addEdgeToUserToDataSet(RevCommit c, LogicalGraph g, DataSet<Edge> ds) throws Exception{
-		Vertex source = getBranchVertex(g, c.getName()); 
-		Vertex target = getUserVertex(g, c.getAuthorIdent().getEmailAddress()); 
+		Vertex source = getVertexFromGraph(g, c.getName()); 
+		Vertex target = getVertexFromGraph(g, c.getAuthorIdent().getEmailAddress()); 
 		if(target == null){
 			System.err.println("User is not in Graph. Need to find a way to get it from the DataSet");
 		}
