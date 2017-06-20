@@ -7,6 +7,7 @@ import java.util.List;
 
 import org.apache.flink.api.common.ProgramDescription;
 import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ListBranchCommand.ListMode;
@@ -110,6 +111,26 @@ public class GradoopFiller implements ProgramDescription {
 		return e;
 	}
 
+
+	public Vertex getCommitVertex(LogicalGraph graph, String name) throws Exception {
+		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
+
+			@Override
+			public boolean filter(Vertex v) throws Exception {
+				if (v.getLabel().equals(GradoopFiller.commitVertexLabel)) {
+					if (v.getPropertyValue("name").equals(name)) {
+						return true;
+					}
+				}
+				return false;
+			}
+		});
+		if(filtered.getVertices().collect().size() == 0 || filtered.getVertices().collect().size() > 1){
+			return null;
+		}
+		return filtered.getVertices().collect().get(0);
+	}
+
 	public Vertex getUserVertex(LogicalGraph graph, String userMail) throws Exception {
 		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
 
@@ -123,6 +144,9 @@ public class GradoopFiller implements ProgramDescription {
 				return false;
 			}
 		});
+		if(filtered.getVertices().collect().size() == 0 || filtered.getVertices().collect().size() > 1){
+			return null;
+		}
 		return filtered.getVertices().collect().get(0);
 	}
 	
@@ -139,7 +163,72 @@ public class GradoopFiller implements ProgramDescription {
 				return false;
 			}
 		});
+		if(filtered.getVertices().collect().size() == 0 || filtered.getVertices().collect().size() > 1){
+			return null;
+		}
 		return filtered.getVertices().collect().get(0);
+	}
+	
+	public DataSet<Vertex> addUserVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
+		PersonIdent user = c.getAuthorIdent();
+		Vertex v = getUserVertex(g, user.getEmailAddress());
+		if(v == null){
+            Properties props = new Properties();
+            props.set("name", user.getName());
+            props.set("email", user.getEmailAddress());
+            props.set("when", user.getWhen().getTime());
+            props.set("timezone", user.getTimeZone().getRawOffset());
+            props.set("timezoneOffset", user.getTimeZoneOffset());
+            v = config.getVertexFactory().createVertex(userVertexLabel, props);
+		}
+		return addVertexToDataSet(v, ds);
+	}
+
+	public DataSet<Vertex> addBranchVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
+		Vertex v = getBranchVertex(g, c.getName());
+		if(v == null){
+            Properties props = new Properties();
+            props.set("name", c.getName());
+            v = config.getVertexFactory().createVertex(branchVertexLabel, props);
+		}
+		return addVertexToDataSet(v, ds);
+	}
+
+	public DataSet<Vertex> addCommitVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
+		Vertex v = getCommitVertex(g, c.getName());
+		if(v == null){
+            Properties props = new Properties();
+            props.set("name", c.name());
+            props.set("time", c.getCommitTime());
+            props.set("message", c.getShortMessage());
+            v = config.getVertexFactory().createVertex(commitVertexLabel, props);
+		}
+		return addVertexToDataSet(v, ds);
+	}
+	
+	public DataSet<Edge> addEdgeToBranchToDataSet(RevCommit c, Ref branch, LogicalGraph g, DataSet<Edge> ds) throws Exception{
+		Vertex source = getCommitVertex(g, c.getName());
+		Vertex target = getBranchVertex(g, branch.getName());
+		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, source.getId(), target.getId());
+		return addEdgeToDataSet(e, ds);
+	}
+	
+	public DataSet<Edge> addEdgeToUserToDataSet(RevCommit c, LogicalGraph g, DataSet<Edge> ds) throws Exception{
+		Vertex source = getBranchVertex(g, c.getName()); 
+		Vertex target = getUserVertex(g, c.getAuthorIdent().getEmailAddress()); 
+		if(target == null){
+			System.err.println("User is not in Graph. Need to find a way to get it from the DataSet");
+		}
+		Edge e = config.getEdgeFactory().createEdge(commitToUserEdgeLabel, source.getId(),target.getId());
+		return addEdgeToDataSet(e, ds);
+	}
+	
+	public DataSet<Vertex> addVertexToDataSet(Vertex v, DataSet<Vertex> ds){
+		return ds.union(config.getExecutionEnvironment().fromElements(v));
+	}
+
+	public DataSet<Edge> addEdgeToDataSet(Edge e, DataSet<Edge> ds){
+		return ds.union(config.getExecutionEnvironment().fromElements(e));
 	}
 	
 	public LogicalGraph parseGitRepoIntoGraph(String pathToGitRepo) {
@@ -201,6 +290,9 @@ public class GradoopFiller implements ProgramDescription {
 				String latestCommitHash = "";
 				LogicalGraph branchGraph = analyzer.getGraphFromCollectionByBranchName(existingBranches, identifier);
 				if (branchGraph != null) {
+					LogicalGraph newGraph = LogicalGraph.createEmptyGraph(config);
+					DataSet<Vertex> newVertices = newGraph.getVertices();
+					DataSet<Edge> newEdges = newGraph.getEdges();
 					identifier = branch.getName();
 					latestCommitHash = branchGraph.getGraphHead().collect().get(0)
 							.getPropertyValue(GitAnalyzer.latestCommitHashLabel).getString();
@@ -208,10 +300,10 @@ public class GradoopFiller implements ProgramDescription {
 						revWalk.markStart(revWalk.parseCommit(branch.getObjectId()));
 						RevCommit commit = revWalk.next();
 						while (commit != null && !commit.getName().toString().equals(latestCommitHash)) {
-							createVertexFromCommit(commit);
-							createVertexFromUser(commit.getAuthorIdent());
-							createEdgeToBranch(commit, branch);
-							createEdgeToUser(commit);
+							newVertices = addCommitVertexToDataSet(commit, branchGraph, newVertices);
+							newVertices = addUserVertexToDataSet(commit, branchGraph, newVertices);
+							newEdges = addEdgeToBranchToDataSet(commit, branch, branchGraph, newEdges);
+							newEdges = addEdgeToUserToDataSet(commit, branchGraph, newEdges);
 							commit = revWalk.next();
 						}
 					} catch (RevisionSyntaxException e) {
