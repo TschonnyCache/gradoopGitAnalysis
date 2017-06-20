@@ -1,10 +1,9 @@
 package gradoopify;
 
+import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.apache.flink.api.common.ProgramDescription;
 import org.apache.flink.api.java.ExecutionEnvironment;
@@ -22,14 +21,15 @@ import org.eclipse.jgit.revwalk.RevWalk;
 import org.gradoop.common.model.impl.id.GradoopId;
 import org.gradoop.common.model.impl.pojo.Edge;
 import org.gradoop.common.model.impl.pojo.GraphHead;
-import org.gradoop.common.model.impl.pojo.GraphHeadFactory;
 import org.gradoop.common.model.impl.pojo.Vertex;
 import org.gradoop.common.model.impl.properties.Properties;
 import org.gradoop.flink.io.api.DataSink;
 import org.gradoop.flink.io.impl.json.JSONDataSink;
+import org.gradoop.flink.model.impl.GraphCollection;
 import org.gradoop.flink.model.impl.LogicalGraph;
 import org.gradoop.flink.util.GradoopFlinkConfig;
 
+import analysis.GitAnalyzer;
 import io.LoadJGit;
 
 public class GradoopFiller implements ProgramDescription {
@@ -39,9 +39,15 @@ public class GradoopFiller implements ProgramDescription {
 	public static final String commitToUserEdgeLabel = "commitToUserEdge";
 	public static final String commitToBranchEdgeLabel = "commitToBranchEdge";
 	private GradoopFlinkConfig config;
+	private GitAnalyzer analyzer;
 
 	private HashMap<String, Vertex> vertices = new HashMap<String, Vertex>();
-	private HashMap<String, Edge> edges = new HashMap<String,Edge>();
+	private HashMap<String, Edge> edges = new HashMap<String, Edge>();
+
+	public GradoopFiller(GradoopFlinkConfig config, GitAnalyzer analyzer) {
+		this.config = config;
+		this.analyzer = analyzer;
+	}
 
 	public GradoopFiller(GradoopFlinkConfig config) {
 		this.config = config;
@@ -49,7 +55,7 @@ public class GradoopFiller implements ProgramDescription {
 
 	public Vertex createVertexFromUser(PersonIdent user) {
 		Vertex v = vertices.get(user.getEmailAddress());
-		if(v != null){
+		if (v != null) {
 			return v;
 		}
 		Properties props = new Properties();
@@ -65,7 +71,7 @@ public class GradoopFiller implements ProgramDescription {
 
 	public Vertex createVertexFromBranch(Ref branch) {
 		Vertex v = vertices.get(branch.getName());
-		if(v != null){
+		if (v != null) {
 			return v;
 		}
 		Properties props = new Properties();
@@ -77,7 +83,7 @@ public class GradoopFiller implements ProgramDescription {
 
 	public Vertex createVertexFromCommit(RevCommit commit) {
 		Vertex v = vertices.get(commit.name());
-		if(v != null){
+		if (v != null) {
 			return v;
 		}
 		Properties props = new Properties();
@@ -100,17 +106,12 @@ public class GradoopFiller implements ProgramDescription {
 		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, vertices.get(commit.getName()).getId(),
 				vertices.get(branch.getName()).getId());
 		edges.put(commit.getName() + "->" + branch.getName(), e);
-		if(commit.getName().equals("88b24790357370ff5012856d02c2a785b1720cec")){
-			System.out.println(e.getId() + "     " + branch.getName());
-			System.out.println("vid: " + vertices.get(commit.getName()).getId());
-		}
 		return e;
 	}
 
 	public LogicalGraph parseGitRepoIntoGraph(String pathToGitRepo) {
 		LoadJGit ljg = new LoadJGit();
 		Repository repository = ljg.openRepo(pathToGitRepo);
-		Map<String, Ref> mapRefs = ljg.getAllHeadsFromRepo(repository);
 		try {
 			Git git = new Git(repository);
 			List<Ref> branchs = git.branchList().setListMode(ListMode.ALL).call();
@@ -149,19 +150,107 @@ public class GradoopFiller implements ProgramDescription {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
-		LogicalGraph graph = LogicalGraph.fromCollections(new GraphHead(new GradoopId(), "test", new Properties()), vertices.values(), edges.values(), config);
+		int lastPathCharIndex = new File(pathToGitRepo).getAbsolutePath().lastIndexOf(File.separator);
+		LogicalGraph graph = LogicalGraph.fromCollections(new GraphHead(new GradoopId(),
+				new File(pathToGitRepo).getAbsolutePath().substring(lastPathCharIndex), new Properties()),
+				vertices.values(), edges.values(), config);
 		return graph;
+	}
+
+	public LogicalGraph updateGraph(String pathToGitRepo, GraphCollection existingBranches) throws Exception {
+		LoadJGit ljg = new LoadJGit();
+		Repository repository = ljg.openRepo(pathToGitRepo);
+		try {
+			Git git = new Git(repository);
+			List<Ref> branchs = git.branchList().setListMode(ListMode.ALL).call();
+			for (Ref branch : branchs) {
+				String identifier = "";
+				String latestCommitHash = "";
+				LogicalGraph branchGraph = analyzer.getGraphFromCollectionByBranchName(existingBranches, identifier);
+				if (branchGraph != null) {
+					identifier = branch.getName();
+					latestCommitHash = branchGraph.getGraphHead().collect().get(0)
+							.getPropertyValue(GitAnalyzer.latestCommitHashLabel).getString();
+					try (RevWalk revWalk = new RevWalk(repository)) {
+						revWalk.markStart(revWalk.parseCommit(branch.getObjectId()));
+						RevCommit commit = revWalk.next();
+						while (commit != null && !commit.getName().toString().equals(latestCommitHash)) {
+							createVertexFromCommit(commit);
+							createVertexFromUser(commit.getAuthorIdent());
+							createEdgeToBranch(commit, branch);
+							createEdgeToUser(commit);
+							commit = revWalk.next();
+						}
+					} catch (RevisionSyntaxException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (AmbiguousObjectException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (IncorrectObjectTypeException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				} else { // Create new branch
+					createVertexFromBranch(branch);
+					try (RevWalk revWalk = new RevWalk(repository)) {
+						revWalk.markStart(revWalk.parseCommit(branch.getObjectId()));
+						RevCommit commit = revWalk.next();
+						while (commit != null) {
+							createVertexFromCommit(commit);
+							createVertexFromUser(commit.getAuthorIdent());
+							createEdgeToBranch(commit, branch);
+							createEdgeToUser(commit);
+							commit = revWalk.next();
+						}
+					} catch (RevisionSyntaxException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (AmbiguousObjectException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (IncorrectObjectTypeException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+
+				}
+				// TODO neuen Graph falls Branch noch nicht exisitiert!!
+			}
+
+			git.close();
+		} catch (GitAPIException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+		return null;
+	}
+
+	private void putGraphEdgesAndVerticesToHashMap(LogicalGraph g, String identifier) throws Exception {
+		List<Edge> edges = g.getEdges().collect();
+		List<Vertex> vertices = g.getVertices().collect();
+		for (Edge e : edges) {
+
+		}
+
 	}
 
 	public static void main(String[] args) throws Exception {
 		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 		GradoopFlinkConfig gradoopConf = GradoopFlinkConfig.createConfig(env);
-		GradoopFiller gf = new GradoopFiller(gradoopConf);
+		GitAnalyzer analyzer = new GitAnalyzer();
+		GradoopFiller gf = new GradoopFiller(gradoopConf, analyzer);
 		LogicalGraph graph = gf.parseGitRepoIntoGraph(".");
-		DataSink sink = new JSONDataSink("./json",gradoopConf);
+		DataSink sink = new JSONDataSink("./json", gradoopConf);
 		sink.write(graph);
 		env.execute();
-		
+
 	}
 
 	public String getDescription() {

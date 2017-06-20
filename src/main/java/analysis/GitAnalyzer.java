@@ -28,6 +28,7 @@ public class GitAnalyzer implements Serializable {
 	private static final long serialVersionUID = 5400004312044745133L;
 
 	public static final String branchGraphHeadLabel = "branch";
+	public static final String latestCommitHashLabel = "latestCommitHash";
 
 	public LogicalGraph createUserCount(LogicalGraph graph) {
 		LogicalGraph userSubGraph = graph.subgraph(new FilterFunction<Vertex>() {
@@ -153,6 +154,22 @@ public class GitAnalyzer implements Serializable {
 		return GraphCollection.fromCollections(branchSubgraphsHeads, graph.getVertices().collect(),
 				graph.getEdges().collect(), config);
 	}
+	
+	public LogicalGraph getGraphFromCollectionByBranchName(GraphCollection gc, String branchName) throws Exception{
+		List<GraphHead> graphHead = gc.select(new FilterFunction<GraphHead>() {
+				      @Override
+				      public boolean filter(GraphHead entity) throws Exception {
+				        return entity.hasProperty("name") &&
+				          entity.getPropertyValue("name").getString().equals(branchName);
+				      }
+				    }).getGraphHeads().collect();
+		if(graphHead == null || graphHead.size() == 0 || graphHead.size() > 1){
+			System.err.println("Too many or no graph heads found! Returning null");
+			return null;
+		}
+		LogicalGraph result = gc.getGraph(graphHead.get(0).getId());
+		return result;
+	}
 
 	public LogicalGraph addLatestCommitOnThisBranchAsProperty(LogicalGraph g)
 			throws Exception {
@@ -176,7 +193,9 @@ public class GitAnalyzer implements Serializable {
 
 			@Override
 			public GraphHead apply(GraphHead current, GraphHead transformed) {
-				transformed.setProperty("latestCommitHash", latestCommitHash);
+				transformed.setLabel(current.getLabel());
+				transformed.setProperties(current.getProperties());
+				transformed.setProperty(latestCommitHashLabel, latestCommitHash);
 				return transformed;
 			}
 
