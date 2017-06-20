@@ -114,52 +114,49 @@ public class GradoopFiller implements ProgramDescription {
 		edges.put(commit.getName() + "->" + branch.getName(), e);
 		return e;
 	}
-
-	public Vertex getUserVertexFromGraph(LogicalGraph graph, String userMail) throws Exception {
-		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
-
-			@Override
-			public boolean filter(Vertex v) throws Exception {
-				if (v.getLabel().equals(GradoopFiller.userVertexLabel)) {
-					if (v.getPropertyValue("email").equals(userMail)) {
-						return true;
-					}
-				}
-				return false;
-			}
-		});
-		Vertex vertex;
-		try {
-			vertex = filtered.getVertices().collect().get(0);
-		} catch (Exception IndexOutOfBoundsException ) {
-			vertex = null;
-		}
-		return vertex;
-	}
 	
-	public Vertex getBranchVertexFromGraph(LogicalGraph graph,String name){
+	public Vertex getVertexFromGraph(LogicalGraph graph,String identifier) throws Exception{
 		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
 
 			@Override
 			public boolean filter(Vertex v) throws Exception {
 				if (v.getLabel().equals(GradoopFiller.branchVertexLabel)) {
-					if (v.getPropertyValue("name").equals(name)) {
+					if (v.hasProperty("name") && v.getPropertyValue("name").equals(identifier)) {
+						return true;
+					} else if (v.hasProperty("email") && v.getPropertyValue("email").equals(identifier)){
 						return true;
 					}
 				}
 				return false;
 			}
 		});
-		Vertex vertex;
-		try {
-			vertex = filtered.getVertices().collect().get(0);
-		} catch (Exception IndexOutOfBoundsException ) {
-			vertex = null;
+		
+		if(filtered == null || filtered.getVertices().count()==0 || filtered.getVertices().count()>1){
+			System.err.println("Too many or no vertices found in given graph! Returning null");
+			return null;
 		}
-		return vertex;
+		return filtered.getVertices().collect().get(0);
 	}
 	
-	
+	public Vertex getVertexFromDataSet(String identifier) throws Exception{
+		DataSet<Vertex> filterd = verticesDataSet.filter(new FilterFunction<Vertex>() {
+
+			@Override
+			public boolean filter(Vertex v) throws Exception {
+				if(v.hasProperty("name") && v.getPropertyValue("name").equals(identifier)){
+					return true;
+				}else if(v.hasProperty("email") && v.getPropertyValue("email").equals(identifier)){
+					return true;
+				}
+				return false;
+			}
+		});
+		if (filterd == null || filterd.count() == 0 || filterd.count() > 1) {
+			System.err.println("Too many or no vertices found in vertivesDataSet! Returning null");
+			return null;
+		}
+		return filterd.collect().get(0);
+	}
 	
 	public LogicalGraph parseGitRepoIntoGraph(String pathToGitRepo) {
 		LoadJGit ljg = new LoadJGit();
