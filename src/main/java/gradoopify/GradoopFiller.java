@@ -7,6 +7,7 @@ import java.util.List;
 
 import org.apache.flink.api.common.ProgramDescription;
 import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ListBranchCommand.ListMode;
@@ -30,6 +31,7 @@ import org.gradoop.flink.model.impl.GraphCollection;
 import org.gradoop.flink.model.impl.LogicalGraph;
 import org.gradoop.flink.util.GradoopFlinkConfig;
 
+
 import analysis.GitAnalyzer;
 import io.LoadJGit;
 
@@ -44,6 +46,9 @@ public class GradoopFiller implements ProgramDescription {
 
 	private HashMap<String, Vertex> vertices = new HashMap<String, Vertex>();
 	private HashMap<String, Edge> edges = new HashMap<String, Edge>();
+	
+	private DataSet<Vertex> verticesDataSet = null;
+	private DataSet edgesDataSet = null;
 
 	public GradoopFiller(GradoopFlinkConfig config, GitAnalyzer analyzer) {
 		this.config = config;
@@ -153,6 +158,8 @@ public class GradoopFiller implements ProgramDescription {
 		}
 		return vertex;
 	}
+	
+	
 	
 	public LogicalGraph parseGitRepoIntoGraph(String pathToGitRepo) {
 		LoadJGit ljg = new LoadJGit();
