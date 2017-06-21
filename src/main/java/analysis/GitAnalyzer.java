@@ -5,18 +5,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
+import org.gradoop.common.model.impl.id.GradoopId;
 import org.gradoop.common.model.impl.pojo.Edge;
 import org.gradoop.common.model.impl.pojo.GraphHead;
 import org.gradoop.common.model.impl.pojo.Vertex;
-import org.gradoop.common.model.impl.properties.PropertyValue;
 import org.gradoop.flink.io.api.DataSink;
 import org.gradoop.flink.io.impl.json.JSONDataSink;
-import org.gradoop.flink.model.api.functions.AggregateFunction;
 import org.gradoop.flink.model.api.functions.TransformationFunction;
-import org.gradoop.flink.model.api.functions.VertexAggregateFunction;
 import org.gradoop.flink.model.impl.GraphCollection;
 import org.gradoop.flink.model.impl.LogicalGraph;
+import org.gradoop.flink.model.impl.functions.graphcontainment.InGraph;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.count.VertexCount;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.min.MinVertexProperty;
 import org.gradoop.flink.util.GradoopFlinkConfig;
@@ -68,22 +68,12 @@ public class GitAnalyzer implements Serializable {
 			throws Exception {
 		LogicalGraph onlyBranchVerticesGraph = graph.subgraph(new FilterFunction<Vertex>() {
 
-			/**
-			 * 
-			 */
-			private static final long serialVersionUID = -6111079302462324343L;
-
 			@Override
 			public boolean filter(Vertex v) throws Exception {
 				return v.getLabel().equals(GradoopFiller.branchVertexLabel);
 			}
 
 		}, new FilterFunction<Edge>() {
-
-			/**
-			 * 
-			 */
-			private static final long serialVersionUID = -4095888214789879745L;
 
 			@Override
 			public boolean filter(Edge arg0) throws Exception {
@@ -93,21 +83,15 @@ public class GitAnalyzer implements Serializable {
 		});
 		List<Vertex> allBranches = onlyBranchVerticesGraph.getVertices().collect();
 		List<Edge> allEdges = graph.getEdges().collect();
-		List<GraphHead> branchSubgraphsHeads = new ArrayList<GraphHead>();
+		List<LogicalGraph> resultGraphs = new ArrayList<LogicalGraph>();
 		for (Vertex branch : allBranches) {
 			LogicalGraph currentBranchSubGraph = graph.subgraph(new FilterFunction<Vertex>() {
-
-				/**
-				 * 
-				 */
-				private static final long serialVersionUID = -2871983887699356318L;
 
 				// Checks if the is an edge between the current vertex and
 				// current branch vertex
 				@Override
 				public boolean filter(Vertex v) throws Exception {
 					for (Edge edge : allEdges) {
-						System.out.println(v.getId() + "   ->   " + branch.getId());
 						if (edge.getSourceId().equals(v.getId()) && edge.getTargetId().equals(branch.getId())) {
 							return true;
 						}
@@ -116,11 +100,6 @@ public class GitAnalyzer implements Serializable {
 				}
 
 			}, new FilterFunction<Edge>() {
-
-				/**
-				 * 
-				 */
-				private static final long serialVersionUID = -1480588024727139895L;
 
 				@Override
 				public boolean filter(Edge e) throws Exception {
@@ -131,51 +110,58 @@ public class GitAnalyzer implements Serializable {
 				}
 
 			});
-			System.out.println("Label before: " + currentBranchSubGraph.getGraphHead().collect().get(0).getLabel());
 			currentBranchSubGraph = currentBranchSubGraph.transformGraphHead(new TransformationFunction<GraphHead>() {
-				/**
-				 * 
-				 */
-				private static final long serialVersionUID = -5530256569602123586L;
 
 				@Override
 				public GraphHead apply(GraphHead current, GraphHead transformed) {
-					transformed.setLabel(branchGraphHeadLabel);
-					transformed.setProperty("name", branch.getPropertyValue("name").getString());
-					return transformed;
+					current.setLabel(branchGraphHeadLabel);
+					current.setProperty("name", branch.getPropertyValue("name").getString());
+					return current;
 				}
 
 			});
+		
 			currentBranchSubGraph = addLatestCommitOnThisBranchAsProperty(currentBranchSubGraph);
-			System.out.println("Label after: " + currentBranchSubGraph.getGraphHead().collect().get(0));
-			branchSubgraphsHeads.add(currentBranchSubGraph.getGraphHead().collect().get(0));
+			LogicalGraph newGraph = GradoopFiller.createGraphFromDataSetsAndAddThemToHead(
+					currentBranchSubGraph.getGraphHead().collect().get(0), currentBranchSubGraph.getVertices(),
+					currentBranchSubGraph.getEdges(), config);
+			resultGraphs.add(newGraph);
 
 		}
-		return GraphCollection.fromCollections(branchSubgraphsHeads, graph.getVertices().collect(),
-				graph.getEdges().collect(), config);
-	}
-	
-	public LogicalGraph getGraphFromCollectionByBranchName(GraphCollection gc, String branchName) throws Exception{
-		List<GraphHead> graphHead = gc.select(new FilterFunction<GraphHead>() {
-				      @Override
-				      public boolean filter(GraphHead entity) throws Exception {
-				        return entity.hasProperty("name") &&
-				          entity.getPropertyValue("name").getString().equals(branchName);
-				      }
-				    }).getGraphHeads().collect();
-		if(graphHead == null || graphHead.size() == 0 || graphHead.size() > 1){
-			System.err.println("Too many or no graph heads found! Returning null");
-			return null;
+		GraphCollection result = GraphCollection.createEmptyCollection(config);
+		for (LogicalGraph g : resultGraphs) {
+			result = result.union(GraphCollection.fromGraph(g));
 		}
-		LogicalGraph result = gc.getGraph(graphHead.get(0).getId());
 		return result;
 	}
 
-	public LogicalGraph addLatestCommitOnThisBranchAsProperty(LogicalGraph g)
-			throws Exception {
+	public LogicalGraph getGraphFromCollectionByBranchName(GraphCollection gc, String branchName) throws Exception {
+		List<GraphHead> graphHead = gc.select(new FilterFunction<GraphHead>() {
+			@Override
+			public boolean filter(GraphHead entity) throws Exception {
+				boolean correct = entity.hasProperty("name")
+						&& entity.getPropertyValue("name").getString().equals(branchName);
+				return correct;
+			}
+		}).getGraphHeads().collect();
+		if (graphHead == null || graphHead.size() == 0 || graphHead.size() > 1) {
+			System.err.println("Too many or no graph heads found! Returning null");
+			return null;
+		}
+		GradoopId graphID = graphHead.get(0).getId();
+		DataSet<Vertex> vertices = gc.getVertices().filter(new InGraph<>(graphID));
+		DataSet<Edge> edges = gc.getEdges().filter(new InGraph<>(graphID));
+		List<Vertex> test1 = vertices.collect();
+		List<Edge> test2 = edges.collect();
+		LogicalGraph result = LogicalGraph.fromDataSets(gc.getConfig().getExecutionEnvironment().fromElements(graphHead.get(0)), vertices, edges, gc.getConfig());
+		return result;
+	}
+
+	public LogicalGraph addLatestCommitOnThisBranchAsProperty(LogicalGraph g) throws Exception {
 		MinVertexProperty mvp = new MinVertexProperty("time");
 		LogicalGraph withMinTime = g.aggregate(mvp);
-		int minTime = withMinTime.getGraphHead().collect().get(0).getPropertyValue(mvp.getAggregatePropertyKey()).getInt();
+		int minTime = withMinTime.getGraphHead().collect().get(0).getPropertyValue(mvp.getAggregatePropertyKey())
+				.getInt();
 		LogicalGraph filtered = g.vertexInducedSubgraph(new FilterFunction<Vertex>() {
 
 			@Override
@@ -189,14 +175,14 @@ public class GitAnalyzer implements Serializable {
 			}
 		});
 		String latestCommitHash = filtered.getVertices().collect().get(0).getPropertyValue("name").getString();
-		LogicalGraph res =  g.transformGraphHead(new TransformationFunction<GraphHead>() {
+		LogicalGraph res = g.transformGraphHead(new TransformationFunction<GraphHead>() {
 
 			@Override
 			public GraphHead apply(GraphHead current, GraphHead transformed) {
-				transformed.setLabel(current.getLabel());
-				transformed.setProperties(current.getProperties());
-				transformed.setProperty(latestCommitHashLabel, latestCommitHash);
-				return transformed;
+				// current.setLabel(current.getLabel());
+				// current.setProperties(current.getProperties());
+				current.setProperty(latestCommitHashLabel, latestCommitHash);
+				return current;
 			}
 
 		});

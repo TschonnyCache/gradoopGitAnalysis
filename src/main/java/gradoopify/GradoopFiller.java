@@ -2,6 +2,7 @@ package gradoopify;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 
@@ -29,8 +30,8 @@ import org.gradoop.flink.io.api.DataSink;
 import org.gradoop.flink.io.impl.json.JSONDataSink;
 import org.gradoop.flink.model.impl.GraphCollection;
 import org.gradoop.flink.model.impl.LogicalGraph;
+import org.gradoop.flink.model.impl.functions.graphcontainment.AddToGraph;
 import org.gradoop.flink.util.GradoopFlinkConfig;
-
 
 import analysis.GitAnalyzer;
 import io.LoadJGit;
@@ -41,6 +42,19 @@ public class GradoopFiller implements ProgramDescription {
 	public static final String commitVertexLabel = "commit";
 	public static final String commitToUserEdgeLabel = "commitToUserEdge";
 	public static final String commitToBranchEdgeLabel = "commitToBranchEdge";
+
+	public static final String branchVertexFieldName = "name";
+
+	public static final String commitVertexFieldName = "name";
+	public static final String commitVertexFieldTime = "time";
+	public static final String commitVertexFieldMessage = "message";
+
+	public static final String userVertexFieldName = "name";
+	public static final String userVertexFieldEmail = "email";
+	public static final String userVertexFieldWhen = "when";
+	public static final String userVertexFieldTimeZone = "timezone";
+	public static final String userVertexFieldTimeZoneOffset = "timezoneOffset";
+
 	private GradoopFlinkConfig config;
 	private GitAnalyzer analyzer;
 
@@ -65,11 +79,11 @@ public class GradoopFiller implements ProgramDescription {
 			return v;
 		}
 		Properties props = new Properties();
-		props.set("name", user.getName());
-		props.set("email", user.getEmailAddress());
-		props.set("when", user.getWhen().getTime());
-		props.set("timezone", user.getTimeZone().getRawOffset());
-		props.set("timezoneOffset", user.getTimeZoneOffset());
+		props.set(userVertexFieldName, user.getName());
+		props.set(userVertexFieldEmail, user.getEmailAddress());
+		props.set(userVertexFieldWhen, user.getWhen().getTime());
+		props.set(userVertexFieldTimeZone, user.getTimeZone().getRawOffset());
+		props.set(userVertexFieldTimeZoneOffset, user.getTimeZoneOffset());
 		v = config.getVertexFactory().createVertex(userVertexLabel, props);
 		vertices.put(user.getEmailAddress(), v);
 		return v;
@@ -81,7 +95,7 @@ public class GradoopFiller implements ProgramDescription {
 			return v;
 		}
 		Properties props = new Properties();
-		props.set("name", branch.getName());
+		props.set(branchVertexFieldName, branch.getName());
 		v = config.getVertexFactory().createVertex(branchVertexLabel, props);
 		vertices.put(branch.getName(), v);
 		return v;
@@ -93,9 +107,9 @@ public class GradoopFiller implements ProgramDescription {
 			return v;
 		}
 		Properties props = new Properties();
-		props.set("name", commit.name());
-		props.set("time", commit.getCommitTime());
-		props.set("message", commit.getShortMessage());
+		props.set(commitVertexFieldName, commit.name());
+		props.set(commitVertexFieldTime, commit.getCommitTime());
+		props.set(commitVertexFieldMessage, commit.getShortMessage());
 		v = config.getVertexFactory().createVertex(commitVertexLabel, props);
 		vertices.put(commit.name(), v);
 		return v;
@@ -115,43 +129,49 @@ public class GradoopFiller implements ProgramDescription {
 		return e;
 	}
 	
-	public Vertex getVertexFromGraph(LogicalGraph graph,String identifier) throws Exception{
+	public Vertex getVertexFromGraph(LogicalGraph graph, String label, String propertyKey, String identifier) throws Exception{
 		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
 
 			@Override
 			public boolean filter(Vertex v) throws Exception {
-				if (v.getLabel().equals(GradoopFiller.branchVertexLabel)) {
-					if (v.hasProperty("name") && v.getPropertyValue("name").equals(identifier)) {
-						return true;
-					} else if (v.hasProperty("email") && v.getPropertyValue("email").equals(identifier)){
+				if (v.getLabel().equals(label)) {
+					if (v.hasProperty(propertyKey) && v.getPropertyValue(propertyKey).getString().equals(identifier)) {
 						return true;
 					}
 				}
 				return false;
 			}
 		});
-		if(filtered == null || filtered.getVertices().count()==0 || filtered.getVertices().count()>1){
-			System.err.println("Too many or no vertices found in given graph! Returning null");
+		if(filtered == null || filtered.getVertices().count()==0){
+			System.err.println("No vertices of type " + label + " with " + propertyKey + " = " + identifier + " found in given graph! Returning null");
+			return null;
+		}
+		if(filtered.getVertices().count()>1){
+			System.err.println("Too many vertices of type " + label + " with " + propertyKey + " = " + identifier + " found in given graph! Returning null");
 			return null;
 		}
 		return filtered.getVertices().collect().get(0);
 	}
 	
-	public Vertex getVertexFromDataSet(String identifier, DataSet<Vertex> ds) throws Exception{
+	public Vertex getVertexFromDataSet(String identifier, String label, String propertyKey, DataSet<Vertex> ds) throws Exception{
 		DataSet<Vertex> filtered = ds.filter(new FilterFunction<Vertex>() {
 
 			@Override
 			public boolean filter(Vertex v) throws Exception {
-				if(v.hasProperty("name") && v.getPropertyValue("name").equals(identifier)){
-					return true;
-				}else if(v.hasProperty("email") && v.getPropertyValue("email").equals(identifier)){
-					return true;
+				if (v.getLabel().equals(label)) {
+					if (v.hasProperty(propertyKey) && v.getPropertyValue(propertyKey).getString().equals(identifier)) {
+						return true;
+					}
 				}
 				return false;
 			}
 		});
-		if (filtered == null || filtered.count() == 0 || filtered.count() > 1) {
-			System.err.println("Too many or no vertices found in vertivesDataSet! Returning null");
+		if(filtered == null || filtered.count()==0){
+			System.err.println("No vertices of type " + label + " with " + propertyKey + " = " + identifier + " found in given dataset! Returning null");
+			return null;
+		}
+		if(filtered.count()>1){
+			System.err.println("Too many vertices of type " + label + " with " + propertyKey + " = " + identifier + " found in given dataset! Returning null");
 			return null;
 		}
 		return filtered.collect().get(0);
@@ -159,7 +179,7 @@ public class GradoopFiller implements ProgramDescription {
 	
 	public DataSet<Vertex> addUserVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
 		PersonIdent user = c.getAuthorIdent();
-		Vertex v = getVertexFromGraph(g, user.getEmailAddress());
+		Vertex v = getVertexFromGraph(g, userVertexLabel, userVertexFieldEmail, user.getEmailAddress());
 		if(v == null){
             Properties props = new Properties();
             props.set("name", user.getName());
@@ -173,7 +193,7 @@ public class GradoopFiller implements ProgramDescription {
 	}
 
 	public DataSet<Vertex> addBranchVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
-		Vertex v = getVertexFromGraph(g, c.getName());
+		Vertex v = getVertexFromGraph(g, branchVertexLabel, branchVertexFieldName, c.getName());
 		if(v == null){
             Properties props = new Properties();
             props.set("name", c.getName());
@@ -183,7 +203,7 @@ public class GradoopFiller implements ProgramDescription {
 	}
 
 	public DataSet<Vertex> addCommitVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
-		Vertex v = getVertexFromGraph(g, c.getName());
+		Vertex v = getVertexFromGraph(g, commitVertexLabel, commitVertexFieldName, c.getName());
 		if(v == null){
             Properties props = new Properties();
             props.set("name", c.name());
@@ -195,23 +215,35 @@ public class GradoopFiller implements ProgramDescription {
 	}
 	
 	public DataSet<Edge> addEdgeToBranchToDataSet(RevCommit c, Ref branch, LogicalGraph g, DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception{
-		Vertex source = getVertexFromGraph(g, c.getName());
+		Vertex source = getVertexFromGraph(g, commitVertexLabel, commitVertexFieldName, c.getName());
 		if(source == null){
-			source = getVertexFromDataSet(c.getName(), vertices);
+			source = getVertexFromDataSet(c.getName(), commitVertexLabel, commitVertexFieldName, vertices);
 		}
-		Vertex target = getVertexFromGraph(g, branch.getName());
+		Vertex target = getVertexFromGraph(g, branchVertexLabel, branchVertexFieldName, branch.getName());
+		
+		List<Vertex> vs = g.getVertices().collect();
+		for(Vertex v: vs){
+			if(v.getLabel().equals(branchVertexLabel) && v.getPropertyValue(branchVertexFieldName).getString().equals(branch.getName())){
+				System.err.println("Found " + v);
+			}else{
+				System.err.println("It is not " + v);
+			}
+		}
+		
+		
+		
 		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, source.getId(), target.getId());
 		return addEdgeToDataSet(e, edges);
 	}
 	
 	public DataSet<Edge> addEdgeToUserToDataSet(RevCommit c, LogicalGraph g, DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception{
-		Vertex source = getVertexFromGraph(g, c.getName()); 
+		Vertex source = getVertexFromGraph(g, commitVertexLabel, commitVertexFieldName, c.getName()); 
 		if(source == null){
-			source = getVertexFromDataSet(c.getName(), vertices);
+			source = getVertexFromDataSet(c.getName(), commitVertexLabel, commitVertexFieldName, vertices);
 		}
-		Vertex target = getVertexFromGraph(g, c.getAuthorIdent().getEmailAddress()); 
+		Vertex target = getVertexFromGraph(g,userVertexLabel, userVertexFieldEmail,  c.getAuthorIdent().getEmailAddress()); 
 		if(target == null){
-			target = getVertexFromDataSet(c.getAuthorIdent().getEmailAddress(), vertices);
+			target = getVertexFromDataSet(c.getAuthorIdent().getEmailAddress(), userVertexLabel, userVertexFieldEmail, vertices);
 		}
 		Edge e = config.getEdgeFactory().createEdge(commitToUserEdgeLabel, source.getId(),target.getId());
 		return addEdgeToDataSet(e, edges);
@@ -267,28 +299,59 @@ public class GradoopFiller implements ProgramDescription {
 			e1.printStackTrace();
 		}
 		int lastPathCharIndex = new File(pathToGitRepo).getAbsolutePath().lastIndexOf(File.separator);
-		LogicalGraph graph = LogicalGraph.fromCollections(new GraphHead(new GradoopId(),
-				new File(pathToGitRepo).getAbsolutePath().substring(lastPathCharIndex), new Properties()),
-				vertices.values(), edges.values(), config);
+		GraphHead head = new GraphHead(GradoopId.get(), new File(pathToGitRepo).getAbsolutePath().substring(lastPathCharIndex), new Properties());
+		LogicalGraph graph = createGraphFromCollectionsAndAddThemToHead(head, vertices.values(), edges.values(),config);
 		return graph;
+	}
+	
+	public static LogicalGraph createGraphFromCollectionsAndAddThemToHead(GraphHead head, Collection<Vertex> vertices, Collection<Edge> edges, GradoopFlinkConfig config){
+		DataSet<Vertex> verticesDS = config.getExecutionEnvironment().fromCollection(vertices);
+		DataSet<Edge> edgesDS = config.getExecutionEnvironment().fromCollection(edges);
+		verticesDS = addVertexDataSetToGraphHead(head, verticesDS);
+		edgesDS = addEdgeDataSetToGraphHead(head, edgesDS);
+		return LogicalGraph.fromDataSets(config.getExecutionEnvironment().fromElements(head),verticesDS,edgesDS,config);
+	}
+
+	public static LogicalGraph createGraphFromDataSetsAndAddThemToHead(GraphHead head, DataSet<Vertex> vertices, DataSet<Edge> edges, GradoopFlinkConfig config){
+		vertices = addVertexDataSetToGraphHead(head, vertices);
+		edges = addEdgeDataSetToGraphHead(head, edges);
+		return LogicalGraph.fromDataSets(config.getExecutionEnvironment().fromElements(head),vertices,edges,config);
+	}
+
+	private static DataSet<Vertex> addVertexDataSetToGraphHead(GraphHead graphHead, DataSet<Vertex> vertices){
+        vertices = vertices
+          .map(new AddToGraph<>(graphHead))
+          .withForwardedFields("id;label;properties");
+        return vertices;
+	}
+
+	private static DataSet<Edge> addEdgeDataSetToGraphHead(GraphHead graphHead, DataSet<Edge> edges){
+        edges = edges
+          .map(new AddToGraph<>(graphHead))
+          .withForwardedFields("id;sourceId;targetId;label;properties");
+        return edges;
 	}
 
 	public GraphCollection updateGraphCollection(String pathToGitRepo, GraphCollection existingBranches) throws Exception {
 		LoadJGit ljg = new LoadJGit();
 		Repository repository = ljg.openRepo(pathToGitRepo);
+		GraphCollection updatedGraphs = null;
+		List<GraphHead> vs = existingBranches.getGraphHeads().collect();
+		for(GraphHead v: vs){
+			System.err.println("GraphHead: " + v);
+		}
 		try {
-			GraphCollection updatedGraphs = GraphCollection.createEmptyCollection(config);
+			updatedGraphs = GraphCollection.createEmptyCollection(config);
 			Git git = new Git(repository);
 			List<Ref> branchs = git.branchList().setListMode(ListMode.ALL).call();
 			for (Ref branch : branchs) {
-				String identifier = "";
+				String identifier = branch.getName();
 				String latestCommitHash = "";
 				LogicalGraph branchGraph = analyzer.getGraphFromCollectionByBranchName(existingBranches, identifier);
 				if (branchGraph != null) {
 					LogicalGraph newGraph = LogicalGraph.createEmptyGraph(config);
 					DataSet<Vertex> newVertices = newGraph.getVertices();
 					DataSet<Edge> newEdges = newGraph.getEdges();
-					identifier = branch.getName();
 					latestCommitHash = branchGraph.getGraphHead().collect().get(0)
 							.getPropertyValue(GitAnalyzer.latestCommitHashLabel).getString();
 					try (RevWalk revWalk = new RevWalk(repository)) {
@@ -314,10 +377,9 @@ public class GradoopFiller implements ProgramDescription {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
-					DataSet<GraphHead> gh = config.getExecutionEnvironment().fromElements(config.getGraphHeadFactory().createGraphHead());
-					newGraph = LogicalGraph.fromDataSets(gh,newVertices,newEdges, config);
+					newGraph = createGraphFromDataSetsAndAddThemToHead(config.getGraphHeadFactory().createGraphHead(),newVertices,newEdges, config);
 					branchGraph.combine(newGraph);
-					existingBranches.union(GraphCollection.fromGraph(branchGraph));
+					updatedGraphs = existingBranches.union(GraphCollection.fromGraph(branchGraph));
 				} else { // Create new branch
 					createVertexFromBranch(branch);
 					try (RevWalk revWalk = new RevWalk(repository)) {
@@ -347,8 +409,8 @@ public class GradoopFiller implements ProgramDescription {
 					props.set("name", branch.getName());
 					props.set(GitAnalyzer.latestCommitHashLabel, latestCommitHash);
 					GraphHead gh = config.getGraphHeadFactory().createGraphHead(GitAnalyzer.branchGraphHeadLabel, props);
-					LogicalGraph newGraph = LogicalGraph.fromCollections(gh,vertices.values(), edges.values(), config);
-					existingBranches.union(GraphCollection.fromGraph(newGraph));
+					LogicalGraph newGraph = createGraphFromCollectionsAndAddThemToHead(gh,vertices.values(), edges.values(), config);
+					updatedGraphs = existingBranches.union(GraphCollection.fromGraph(newGraph));
 				}
 			}
 			git.close();
@@ -356,7 +418,7 @@ public class GradoopFiller implements ProgramDescription {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
-		return existingBranches;
+		return updatedGraphs;
 	}
 
 	private void putGraphEdgesAndVerticesToHashMap(LogicalGraph g, String identifier) throws Exception {
