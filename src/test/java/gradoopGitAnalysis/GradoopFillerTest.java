@@ -176,8 +176,8 @@ public class GradoopFillerTest {
 		GraphCollection collection = analyzer.transformBranchesToSubgraphs(graph, config);
 		LogicalGraph branch = analyzer.getGraphFromCollectionByBranchName(collection, GitAnalyzerTest.branchName);
 		List<Vertex> vertices = branch.getVertices().collect();
-		assertEquals(3, vertices.size());
-		assertEquals(2, collection.getEdges().collect().size());
+		assertEquals(1, vertices.size());
+		assertEquals(1, collection.getEdges().collect().size());
 	}
 
 	@Test
@@ -187,8 +187,8 @@ public class GradoopFillerTest {
 		LogicalGraph graph = gf.parseGitRepoIntoGraph(pathToRepo);
 		GraphCollection collection = analyzer.transformBranchesToSubgraphs(graph, config);
 		List<Vertex> vertices = collection.getVertices().collect();
-		assertEquals(3, vertices.size());
-		assertEquals(2, collection.getEdges().collect().size());
+		assertEquals(1, vertices.size());
+		assertEquals(1, collection.getEdges().collect().size());
 
 		String filePath = pathToRepo + "test2.txt";
 		FileWriter fw = new FileWriter(filePath);
@@ -204,6 +204,8 @@ public class GradoopFillerTest {
 
 		collection = gf.updateGraphCollection(pathToRepo, collection);
 
+		List<Vertex> vUp = collection.getVertices().collect();
+		List<Edge> eUp = collection.getEdges().collect();
 		boolean foundNewVertex = false;
 		for (Vertex v : collection.getVertices().collect()) {
 			if (v.getLabel().equals(GradoopFiller.commitVertexLabel)
