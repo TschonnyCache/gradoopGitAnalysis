@@ -7,6 +7,7 @@ import java.util.List;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
+import org.apache.flink.util.Collector;
 import org.gradoop.common.model.impl.id.GradoopId;
 import org.gradoop.common.model.impl.pojo.Edge;
 import org.gradoop.common.model.impl.pojo.GraphHead;
@@ -19,7 +20,14 @@ import org.gradoop.flink.model.impl.LogicalGraph;
 import org.gradoop.flink.model.impl.functions.graphcontainment.InGraph;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.count.VertexCount;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.min.MinVertexProperty;
+import org.gradoop.flink.model.impl.operators.grouping.Grouping;
+import org.gradoop.flink.model.impl.operators.grouping.GroupingStrategy;
+import org.gradoop.flink.model.impl.operators.grouping.functions.ReduceEdgeGroupItems;
+import org.gradoop.flink.model.impl.operators.grouping.functions.aggregation.CountAggregator;
+import org.gradoop.flink.model.impl.operators.matching.common.statistics.GraphStatistics;
 import org.gradoop.flink.util.GradoopFlinkConfig;
+
+import com.sun.tools.classfile.StackMapTable_attribute.verification_type_info;
 
 import gradoopify.GradoopFiller;
 
@@ -29,6 +37,7 @@ public class GitAnalyzer implements Serializable {
 
 	public static final String branchGraphHeadLabel = "branch";
 	public static final String latestCommitHashLabel = "latestCommitHash";
+	public static final String commitVertexFieldUserEmail = "userEmail";
 
 	public LogicalGraph createUserCount(LogicalGraph graph) {
 		LogicalGraph userSubGraph = graph.subgraph(new FilterFunction<Vertex>() {
@@ -59,6 +68,68 @@ public class GitAnalyzer implements Serializable {
 		return userSubGraph.aggregate(new VertexCount());
 	}
 
+	/*
+	 * Adds the authors email to all commits and then groups the 
+	 * commits on that property
+	 */
+	public LogicalGraph groupCommitsByUser(LogicalGraph graph) throws Exception {
+		List<Edge> graphEdges = graph.getEdges().collect();
+		List<Vertex> graphVertices = graph.getVertices().collect();
+		LogicalGraph enrichedGraph = graph.transformVertices(new TransformationFunction<Vertex>() {
+
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = 1L;
+
+			@Override
+			public Vertex apply(Vertex current, Vertex transformed) {
+				if (current.getLabel().equals(GradoopFiller.commitVertexLabel)){
+					for(Edge edge: graphEdges){
+						GradoopId sourceId = edge.getSourceId();
+						if(sourceId.equals(current.getId())){
+							for (Vertex vertex:graphVertices){
+								GradoopId targetId = edge.getTargetId();
+								// if the target vertex is a user vertex
+								if(targetId.equals(vertex.getId()) && vertex.getLabel().equals(GradoopFiller.userVertexLabel)){
+									current.setProperty(commitVertexFieldUserEmail, vertex.getPropertyValue(GradoopFiller.userVertexFieldEmail));
+								}
+							}
+						}
+					}
+				}
+				
+				return current;
+			}
+		});
+		
+		LogicalGraph onlyCommitsGraph = enrichedGraph.subgraph(new FilterFunction<Vertex>() {
+
+			@Override
+			public boolean filter(Vertex v) throws Exception {
+				if (v.getLabel().equals(GradoopFiller.commitVertexLabel)) {
+					return true;
+				}
+				return false;
+			}
+		}, new FilterFunction<Edge>() {
+
+			@Override
+			public boolean filter(Edge arg0) throws Exception {
+				// TODO Auto-generated method stub
+				return false;
+			}
+		});
+		Grouping operator = new Grouping.GroupingBuilder()
+				.setStrategy(GroupingStrategy.GROUP_REDUCE)
+				.useVertexLabel(true)
+				.addVertexGroupingKey(commitVertexFieldUserEmail)
+				.addVertexAggregator(new CountAggregator("numberOfCommits"))
+				.build();
+		LogicalGraph grouped = onlyCommitsGraph.callForGraph(operator);
+		return grouped;
+	}
+	
 	/**
 	 * Adds Subgraphs to the graph which represent a branch. each of these
 	 * branch subgraphs then contains all the commits belonging to the branch
@@ -68,12 +139,22 @@ public class GitAnalyzer implements Serializable {
 			throws Exception {
 		LogicalGraph onlyBranchVerticesGraph = graph.subgraph(new FilterFunction<Vertex>() {
 
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = 1L;
+
 			@Override
 			public boolean filter(Vertex v) throws Exception {
 				return v.getLabel().equals(GradoopFiller.branchVertexLabel);
 			}
 
 		}, new FilterFunction<Edge>() {
+
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = 1L;
 
 			@Override
 			public boolean filter(Edge arg0) throws Exception {
@@ -86,6 +167,11 @@ public class GitAnalyzer implements Serializable {
 		List<LogicalGraph> resultGraphs = new ArrayList<LogicalGraph>();
 		for (Vertex branch : allBranches) {
 			LogicalGraph currentBranchSubGraph = graph.subgraph(new FilterFunction<Vertex>() {
+
+				/**
+				 * 
+				 */
+				private static final long serialVersionUID = 1L;
 
 				// Checks if the is an edge between the current vertex and
 				// current branch vertex
@@ -101,6 +187,11 @@ public class GitAnalyzer implements Serializable {
 
 			}, new FilterFunction<Edge>() {
 
+				/**
+				 * 
+				 */
+				private static final long serialVersionUID = 1L;
+
 				@Override
 				public boolean filter(Edge e) throws Exception {
 					if (e.getTargetId().equals(branch.getId())) {
@@ -111,6 +202,11 @@ public class GitAnalyzer implements Serializable {
 
 			});
 			currentBranchSubGraph = currentBranchSubGraph.transformGraphHead(new TransformationFunction<GraphHead>() {
+
+				/**
+				 * 
+				 */
+				private static final long serialVersionUID = 1L;
 
 				@Override
 				public GraphHead apply(GraphHead current, GraphHead transformed) {
@@ -137,6 +233,11 @@ public class GitAnalyzer implements Serializable {
 
 	public LogicalGraph getGraphFromCollectionByBranchName(GraphCollection gc, String branchName) throws Exception {
 		List<GraphHead> graphHead = gc.select(new FilterFunction<GraphHead>() {
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = 1L;
+
 			@Override
 			public boolean filter(GraphHead entity) throws Exception {
 				boolean correct = entity.hasProperty("name")
@@ -164,6 +265,11 @@ public class GitAnalyzer implements Serializable {
 				.getInt();
 		LogicalGraph filtered = g.vertexInducedSubgraph(new FilterFunction<Vertex>() {
 
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = 1L;
+
 			@Override
 			public boolean filter(Vertex v) throws Exception {
 				if (v.getLabel().equals(GradoopFiller.commitVertexLabel)) {
@@ -176,6 +282,11 @@ public class GitAnalyzer implements Serializable {
 		});
 		String latestCommitHash = filtered.getVertices().collect().get(0).getPropertyValue("name").getString();
 		LogicalGraph res = g.transformGraphHead(new TransformationFunction<GraphHead>() {
+
+			/**
+			 * 
+			 */
+			private static final long serialVersionUID = 1L;
 
 			@Override
 			public GraphHead apply(GraphHead current, GraphHead transformed) {
@@ -195,11 +306,11 @@ public class GitAnalyzer implements Serializable {
 		GradoopFiller gf = new GradoopFiller(gradoopConf);
 		LogicalGraph graph = gf.parseGitRepoIntoGraph(".");
 		GitAnalyzer ga = new GitAnalyzer();
-		// LogicalGraph userCountGraph = ga.createUserCount(graph);
+		LogicalGraph userCountGraph = ga.groupCommitsByUser(graph);
 		// userCountGraph.getGraphHead().print();
-		GraphCollection branchGroupedGraph = ga.transformBranchesToSubgraphs(graph, gradoopConf);
+		//GraphCollection branchGroupedGraph = ga.transformBranchesToSubgraphs(graph, gradoopConf);
 		DataSink jsonSink = new JSONDataSink("./out", gradoopConf);
-		branchGroupedGraph.writeTo(jsonSink);
+		userCountGraph.writeTo(jsonSink);
 		env.execute();
 	}
 }
