@@ -42,6 +42,7 @@ public class GradoopFiller implements ProgramDescription {
 	public static final String commitVertexLabel = "commit";
 	public static final String commitToUserEdgeLabel = "commitToUserEdge";
 	public static final String commitToBranchEdgeLabel = "commitToBranchEdge";
+	public static final String commitToNextCommitEdgeLabel = "commitToNextCommitEdge";
 
 	public static final String branchVertexFieldName = "name";
 
@@ -126,6 +127,13 @@ public class GradoopFiller implements ProgramDescription {
 		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, vertices.get(commit.getName()).getId(),
 				vertices.get(branch.getName()).getId());
 		edges.put(commit.getName() + "->" + branch.getName(), e);
+		return e;
+	}
+	
+	public Edge createEdgeFromPreviousToLatestCommit(RevCommit previousCommit, RevCommit commit) {
+		Edge e = config.getEdgeFactory().createEdge(commitToNextCommitEdgeLabel, vertices.get(previousCommit.getName()).getId(),
+				vertices.get(commit.getName()).getId());
+		edges.put(previousCommit.getName() + "->" + commit.getName(), e);
 		return e;
 	}
 	
@@ -249,6 +257,9 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 	
+
+		
+	
 	public DataSet<Vertex> addVertexToDataSet(Vertex v, DataSet<Vertex> ds){
 		return ds.union(config.getExecutionEnvironment().fromElements(v));
 	}
@@ -263,6 +274,8 @@ public class GradoopFiller implements ProgramDescription {
 		try {
 			Git git = new Git(repository);
 			List<Ref> branchs = git.branchList().setListMode(ListMode.ALL).call();
+			// the previously processed commit, i.e. one commit later in the revWalk as walks from the latest to the first commit
+			RevCommit previousCommit = null;
 			for (Ref branch : branchs) {
 				// System.out.println("\n\n ===== Writing branch: " +
 				// branch.getName() + " =======\n\n");
@@ -277,6 +290,10 @@ public class GradoopFiller implements ProgramDescription {
 						createVertexFromUser(commit.getAuthorIdent());
 						createEdgeToBranch(commit, branch);
 						createEdgeToUser(commit);
+						if (previousCommit != null) {
+							createEdgeFromPreviousToLatestCommit(commit,previousCommit);
+						}
+						previousCommit = commit;
 						commit = revWalk.next();
 					}
 				} catch (RevisionSyntaxException e) {
@@ -358,6 +375,7 @@ public class GradoopFiller implements ProgramDescription {
 						revWalk.markStart(revWalk.parseCommit(branch.getObjectId()));
 						RevCommit commit = revWalk.next();
 						while (commit != null && !commit.getName().toString().equals(latestCommitHash)) {
+							//
 							newVertices = addCommitVertexToDataSet(commit, branchGraph, newVertices);
 							newVertices = addUserVertexToDataSet(commit, branchGraph, newVertices);
 							newEdges = addEdgeToBranchToDataSet(commit, branch, branchGraph, newEdges, newVertices);
