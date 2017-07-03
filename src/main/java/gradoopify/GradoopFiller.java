@@ -163,7 +163,6 @@ public class GradoopFiller implements ProgramDescription {
 	}
 	
 	public Vertex getVertexFromDataSet(String identifier, String label, String propertyKey, DataSet<Vertex> ds) throws Exception{
-		List<Vertex> vertices = ds.collect();
 		DataSet<Vertex> filtered = ds.filter(new FilterFunction<Vertex>() {
 
 			@Override
@@ -230,15 +229,6 @@ public class GradoopFiller implements ProgramDescription {
 			source = getVertexFromDataSet(c.getName(), commitVertexLabel, commitVertexFieldName, vertices);
 		}
 		Vertex target = getVertexFromGraph(g, branchVertexLabel, branchVertexFieldName, branch.getName());
-		
-		List<Vertex> vs = g.getVertices().collect();
-		for(Vertex v: vs){
-			if(v.getLabel().equals(branchVertexLabel) && v.getPropertyValue(branchVertexFieldName).getString().equals(branch.getName())){
-				System.err.println("Found " + v);
-			}else{
-				System.err.println("It is not " + v);
-			}
-		}
 		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, source.getId(), target.getId());
 		return addEdgeToDataSet(e, edges);
 	}
@@ -367,10 +357,6 @@ public class GradoopFiller implements ProgramDescription {
 		LoadJGit ljg = new LoadJGit();
 		Repository repository = ljg.openRepo(pathToGitRepo);
 		GraphCollection updatedGraphs = null;
-		List<GraphHead> vs = existingBranches.getGraphHeads().collect();
-		for(GraphHead v: vs){
-			System.err.println("GraphHead: " + v);
-		}
 		try {
 			updatedGraphs = GraphCollection.createEmptyCollection(config);
 			Git git = new Git(repository);
@@ -465,15 +451,6 @@ public class GradoopFiller implements ProgramDescription {
 			e1.printStackTrace();
 		}
 		return updatedGraphs;
-	}
-
-	private void putGraphEdgesAndVerticesToHashMap(LogicalGraph g, String identifier) throws Exception {
-		List<Edge> edges = g.getEdges().collect();
-		List<Vertex> vertices = g.getVertices().collect();
-		for (Edge e : edges) {
-
-		}
-
 	}
 
 	public static void main(String[] args) throws Exception {
