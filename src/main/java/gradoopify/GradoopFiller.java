@@ -154,6 +154,7 @@ public class GradoopFiller implements ProgramDescription {
 	}
 	
 	public Vertex getVertexFromDataSet(String identifier, String label, String propertyKey, DataSet<Vertex> ds) throws Exception{
+		List<Vertex> vertices = ds.collect();
 		DataSet<Vertex> filtered = ds.filter(new FilterFunction<Vertex>() {
 
 			@Override
@@ -229,9 +230,6 @@ public class GradoopFiller implements ProgramDescription {
 				System.err.println("It is not " + v);
 			}
 		}
-		
-		
-		
 		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, source.getId(), target.getId());
 		return addEdgeToDataSet(e, edges);
 	}
@@ -358,10 +356,12 @@ public class GradoopFiller implements ProgramDescription {
 						revWalk.markStart(revWalk.parseCommit(branch.getObjectId()));
 						RevCommit commit = revWalk.next();
 						while (commit != null && !commit.getName().toString().equals(latestCommitHash)) {
+							System.out.println(commit.getShortMessage());
 							newVertices = addCommitVertexToDataSet(commit, branchGraph, newVertices);
 							newVertices = addUserVertexToDataSet(commit, branchGraph, newVertices);
 							newEdges = addEdgeToBranchToDataSet(commit, branch, branchGraph, newEdges, newVertices);
 							newEdges = addEdgeToUserToDataSet(commit, branchGraph, newEdges, newVertices);
+							List<Vertex> tmp = newVertices.collect();
 							commit = revWalk.next();
 						}
 					} catch (RevisionSyntaxException e) {
@@ -378,7 +378,9 @@ public class GradoopFiller implements ProgramDescription {
 						e.printStackTrace();
 					}
 					newGraph = createGraphFromDataSetsAndAddThemToHead(config.getGraphHeadFactory().createGraphHead(),newVertices,newEdges, config);
-					branchGraph.combine(newGraph);
+					List<Vertex> tmp = newGraph.getVertices().collect();
+					branchGraph = branchGraph.combine(newGraph);
+					tmp = branchGraph.getVertices().collect();
 					updatedGraphs = existingBranches.union(GraphCollection.fromGraph(branchGraph));
 				} else { // Create new branch
 					createVertexFromBranch(branch);

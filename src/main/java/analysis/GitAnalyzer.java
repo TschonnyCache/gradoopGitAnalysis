@@ -2,20 +2,23 @@ package analysis;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 
+import org.apache.flink.api.common.functions.CoGroupFunction;
 import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.api.common.functions.FlatJoinFunction;
+import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.JoinFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
-import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.util.Collector;
 import org.gradoop.common.model.impl.id.GradoopId;
 import org.gradoop.common.model.impl.id.GradoopIdList;
 import org.gradoop.common.model.impl.pojo.Edge;
 import org.gradoop.common.model.impl.pojo.GraphHead;
 import org.gradoop.common.model.impl.pojo.Vertex;
-import org.gradoop.common.model.impl.properties.PropertyValue;
+import org.gradoop.common.model.impl.properties.Properties;
 import org.gradoop.flink.io.api.DataSink;
 import org.gradoop.flink.io.impl.json.JSONDataSink;
 import org.gradoop.flink.model.api.functions.TransformationFunction;
@@ -25,7 +28,6 @@ import org.gradoop.flink.model.impl.functions.epgm.Id;
 import org.gradoop.flink.model.impl.functions.graphcontainment.InGraph;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.count.VertexCount;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.min.MinVertexProperty;
-import org.gradoop.flink.model.impl.operators.split.Split;
 import org.gradoop.flink.util.GradoopFlinkConfig;
 
 import gradoopify.GradoopFiller;
@@ -82,65 +84,200 @@ public class GitAnalyzer implements Serializable {
 
 		});
 		List<Vertex> allBranches = onlyBranchVerticesGraph.getVertices().collect();
-		List<Edge> allEdges = graph.getEdges().collect();
+//		List<Edge> allEdges = graph.getEdges().collect();
 		List<LogicalGraph> resGraphs = new ArrayList<LogicalGraph>();
 		for (Vertex branch : allBranches) {
-			LogicalGraph currentBranchSubGraph = graph.subgraph(new FilterFunction<Vertex>() {
+//			LogicalGraph currentBranchSubGraph = graph.subgraph(new FilterFunction<Vertex>() {
+//
+//				// Checks if the is an edge between the current vertex and
+//				// current branch vertex
+//				@Override
+//				public boolean filter(Vertex v) throws Exception {
+//					if(v.getId().equals(branch.getId())){
+//						return true;
+//					}
+//					for (Edge edge : allEdges) {
+//						//Vertex is commit and has edge to branch
+//						if (edge.getSourceId().equals(v.getId()) && edge.getTargetId().equals(branch.getId())) {
+//							return true;
+//							
+//						}
+//					}
+//					return false;
+//				}
+//
+//			}, new FilterFunction<Edge>() {
+//
+//				@Override
+//				public boolean filter(Edge e) throws Exception {
+//					if (e.getTargetId().equals(branch.getId())) {
+//						return true;
+//					}
+//					return false;
+//				}
+//
+//			});
+			
+//			GradoopIdList possibleCommitIds = new GradoopIdList();
+//			DataSet<Edge> commitToBranchEdges = graph.getEdges().filter(e -> {
+//				//Get edges to branch
+//				if (e.getTargetId().equals(branch.getId())) {
+//					GradoopId vertexId = e.getSourceId();
+//					System.err.println("Added: " + vertexId);
+//                    possibleCommitIds.add(vertexId);
+//                    return true;
+//				}
+//				return false;
+//			});
+//			GradoopIdList finalCommitIds = new GradoopIdList();
+//			DataSet<Vertex> commits = graph.getVertices().filter(v -> {
+//				if(possibleCommitIds.contains(v.getId())){
+//                    if(v.getLabel().equals("commit")){
+//                    	finalCommitIds.add(v.getId());
+//                        return true;
+//                    }
+//				}
+//				return false;
+//			});
+//			GradoopIdList possibleUserIds = new GradoopIdList();
+//			DataSet<Edge> userToCommitEdges = graph.getEdges().filter(e -> {
+//				if(finalCommitIds.contains(e.getTargetId())){
+//					possibleUserIds.add(e.getId());
+//					return true;
+//				}
+//				return false;
+//			});
+//			DataSet<Vertex> vertices = graph.getVertices().filter(v -> {
+//				if(finalCommitIds.contains(v.getId())){
+//					return true;
+//				}else if(possibleUserIds.contains(v.getId())){
+//					if(v.getLabel().equals(GradoopFiller.userVertexLabel)){
+//						return true;
+//					}
+//				}
+//				return false;
+//			});
+//			
+//			DataSet<Edge> edges = commitToBranchEdges.union(userToCommitEdges);
+			
+			//Get edges to branch
+			DataSet<Edge> edges = graph.getEdges().filter(e -> {
+				if (e.getTargetId().equals(branch.getId())) {
+                    return true;
+				}
+				if(e.getLabel().equals(GradoopFiller.commitToUserEdgeLabel)){
+					return true;
+				}
+				return false;
+			});
+			
+			//Get vertices that belong to branches
+			DataSet<Vertex> vertices = edges
+				.flatMap(new EdgeSourceTargetIds())
+				.rightOuterJoin(graph.getVertices())
+				.where(id -> id)
+				.equalTo(v -> v.getId())
+				.with(new FlatJoinFunction<GradoopId,Vertex,Vertex>() {
 
-				// Checks if the is an edge between the current vertex and
-				// current branch vertex
-				@Override
-				public boolean filter(Vertex v) throws Exception {
-					for (Edge edge : allEdges) {
-						if (edge.getSourceId().equals(v.getId()) && edge.getTargetId().equals(branch.getId())) {
-							return true;
+					@Override
+					public void join(GradoopId id, Vertex v, Collector<Vertex> out) throws Exception {
+						if(v.getId().equals(id)){
+							out.collect(v);
 						}
 					}
-					return false;
-				}
+				});
+			//Remove duplicates
+			vertices = vertices.distinct(new Id<Vertex>());
 
-			}, new FilterFunction<Edge>() {
-
-				@Override
-				public boolean filter(Edge e) throws Exception {
-					System.out.println(branch.getId() + " == "+ e.getTargetId());
-					if (e.getTargetId().equals(branch.getId())) {
-						return true;
-					}
-					return false;
-				}
-
-			});
-			currentBranchSubGraph = setBranchLabelAsGraphHeadProperty(currentBranchSubGraph, branch.getPropertyValue(GradoopFiller.branchVertexFieldName).getString());
+			Properties ghProps = new Properties();
+			ghProps.set(GradoopFiller.branchVertexFieldName, branch.getPropertyValue(GradoopFiller.branchVertexFieldName).getString());
+			GraphHead gh = new GraphHead(GradoopId.get(), GitAnalyzer.branchGraphHeadLabel, ghProps);
+			LogicalGraph currentBranchSubGraph = GradoopFiller.createGraphFromDataSetsAndAddThemToHead(gh,vertices, edges, config);
 			currentBranchSubGraph = addLatestCommitOnThisBranchAsProperty(currentBranchSubGraph);
 			resGraphs.add(currentBranchSubGraph);
 		}
+		
 		if(resGraphs.size() == 0){
 			return null;
 		}
+//		GraphCollection result = GraphCollection.fromGraph(resGraphs.get(0));
+//        for(int i = 1; i < resGraphs.size(); i++){
+//        	result.union(GraphCollection.fromGraph(resGraphs.get(i)));
+//        }
         DataSet<Vertex> tmpVertices = resGraphs.get(0).getVertices();
         DataSet<Edge> tmpEdges = resGraphs.get(0).getEdges();
         List<GraphHead> tmpGraphHeads = new ArrayList<GraphHead>();
         tmpGraphHeads.add(resGraphs.get(0).getGraphHead().collect().get(0));
 
-        //Fix bug that vertices/edges with same Ids have different GradoopIdLists by joining them
+        //Fix bug that vertices with same Ids have different GradoopIdLists by joining them
         for(int i = 1; i < resGraphs.size(); i++){
         	LogicalGraph g = resGraphs.get(i);
+//        	tmpVertices = tmpVertices
+//                .join(g.getVertices())
+//                .where(new Id<Vertex>())
+//                .equalTo(new Id<Vertex>())
+//                .with(new VertexJoiner());
         	tmpVertices = tmpVertices
-                .join(g.getVertices())
-                .where(new Id<Vertex>())
-                .equalTo(new Id<Vertex>())
-                .with(new VertexJoiner());
+        			.coGroup(g.getVertices())
+        			.where(new Id<Vertex>())
+        			.equalTo(new Id<Vertex>())
+        			.with(new CoGroupFunction<Vertex,Vertex,Vertex>() {
+
+						@Override
+						public void coGroup(Iterable<Vertex> first, Iterable<Vertex> second, Collector<Vertex> out) throws Exception {
+							//If any Iterable is empty we just return the other set
+							Iterator<Vertex> firstIt = first.iterator();
+							Iterator<Vertex> secondIt = second.iterator();
+							if(!firstIt.hasNext()){
+								while(secondIt.hasNext()){
+									out.collect(secondIt.next());
+								}
+							}else if(!secondIt.hasNext()){
+								while(firstIt.hasNext()){
+									out.collect(firstIt.next());
+								}
+							}else{
+                                //Else we join the GradoopIdLists
+                                while(firstIt.hasNext()){
+                                    Vertex v1 = firstIt.next();
+                                    while(secondIt.hasNext()){
+                                        Vertex v2 = secondIt.next();
+                                        if(v1.getId().equals(v2.getId())){
+                                            GradoopIdList firstIdList = v1.getGraphIds();
+                                            for(GradoopId id: v2.getGraphIds()){
+                                                if(!firstIdList.contains(id)){
+                                                    firstIdList.add(id);
+                                                }
+                                            }
+                                            v1.setGraphIds(firstIdList);
+                                            out.collect(v1);
+                                        }else{
+                                            out.collect(v1);
+                                            out.collect(v2);
+                                        }
+                                    }
+                                }
+                            }
+						}
+					});
 
             tmpEdges = tmpEdges
                 .union(g.getEdges());
         	
         	tmpGraphHeads.add(g.getGraphHead().collect().get(0));
         }
-        List<Vertex> fV = tmpVertices.collect();
-        List<Edge> fE = tmpEdges.collect();
+        tmpVertices.print();
         GraphCollection result = GraphCollection.fromDataSets(config.getExecutionEnvironment().fromCollection(tmpGraphHeads), tmpVertices, tmpEdges, config);
 		return result;
+	}
+	
+	public class EdgeSourceTargetIds implements FlatMapFunction<Edge, GradoopId>{
+
+		@Override
+		public void flatMap(Edge e, Collector<GradoopId> out) throws Exception {
+			out.collect(e.getSourceId());
+			out.collect(e.getTargetId());
+		}
 	}
 	
 	public class VertexJoiner
@@ -160,15 +297,6 @@ public class GitAnalyzer implements Serializable {
 		}
     }
 
-    private List<PropertyValue> getSplitValues(Vertex v) {
-      String key = "name";
-      List<PropertyValue> valueList = new ArrayList<>();
-      if (v.hasProperty(key)) {
-        valueList.add(v.getPropertyValue(key));
-      }
-      return valueList;
-    }
-	
 	public LogicalGraph setBranchLabelAsGraphHeadProperty(LogicalGraph g, String branchName){
 			LogicalGraph result = g.transformGraphHead(new TransformationFunction<GraphHead>() {
 

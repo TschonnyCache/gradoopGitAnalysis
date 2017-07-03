@@ -115,14 +115,17 @@ public class GitAnalyzerTest {
 	public void transformBranchesToSubgraphsTest() throws Exception{
 		GraphCollection transformed = analyzer.transformBranchesToSubgraphs(testGraph, config);
 		List<GraphHead> ghs = transformed.getGraphHeads().collect();
-		assertEquals(1,transformed.getVertices().collect().size());
-		assertEquals(2,transformed.getEdges().collect().size());
+		List<Vertex> tmvertices = transformed.getVertices().collect();
+		List<Edge> tmedges = transformed.getEdges().collect();
+		List<GraphHead> tmghs = transformed.getGraphHeads().collect();
+		assertEquals(4,transformed.getVertices().collect().size());
+		assertEquals(4,transformed.getEdges().collect().size());
 		assertEquals(2,ghs.size());
 		for(GraphHead gh: ghs){
 			assertTrue(gh.getPropertyValue("name").getString().equals(branchName) || gh.getPropertyValue("name").getString().equals(branchUpName));
 			assertEquals(latestCommitHash, gh.getPropertyValue(GitAnalyzer.latestCommitHashLabel).getString());
 			List<Vertex> vertices = transformed.getVertices().filter(new InGraph<>(gh.getId())).collect();
-			assertEquals(1, vertices.size());
+			assertEquals(3, vertices.size());
 		}
 	}
 
@@ -138,7 +141,7 @@ public class GitAnalyzerTest {
 		assertEquals(branchName, gh.getPropertyValue("name").getString());
 
 		List<Vertex> vertices = out.getVertices().collect();
-		assertEquals(1,vertices.size());
+		assertEquals(3,vertices.size());
 		for(Vertex v: vertices){
 			if(v.getLabel().equals(GitAnalyzer.branchGraphHeadLabel)){
 				assertEquals(branchName, v.getPropertyValue("name").getString());
@@ -146,7 +149,7 @@ public class GitAnalyzerTest {
 		}
 		
 		List<Edge> edges = out.getEdges().collect();
-		assertEquals(1,edges.size());
+		assertEquals(2,edges.size());
 	}
 	
 	@Test
