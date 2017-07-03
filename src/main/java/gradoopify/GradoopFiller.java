@@ -42,6 +42,7 @@ public class GradoopFiller implements ProgramDescription {
 	public static final String commitVertexLabel = "commit";
 	public static final String commitToUserEdgeLabel = "commitToUserEdge";
 	public static final String commitToBranchEdgeLabel = "commitToBranchEdge";
+	public static final String commitToNextCommitEdgeLabel = "commitToNextCommitEdge";
 
 	public static final String branchVertexFieldName = "name";
 
@@ -126,6 +127,13 @@ public class GradoopFiller implements ProgramDescription {
 		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, vertices.get(commit.getName()).getId(),
 				vertices.get(branch.getName()).getId());
 		edges.put(commit.getName() + "->" + branch.getName(), e);
+		return e;
+	}
+	
+	public Edge createEdgeFromPreviousToLatestCommit(RevCommit previousCommit, RevCommit commit) {
+		Edge e = config.getEdgeFactory().createEdge(commitToNextCommitEdgeLabel, vertices.get(previousCommit.getName()).getId(),
+				vertices.get(commit.getName()).getId());
+		edges.put(previousCommit.getName() + "->" + commit.getName(), e);
 		return e;
 	}
 	
@@ -247,6 +255,24 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 	
+	public DataSet<Edge> addEdgeFromPreviousToLatestCommit(RevCommit commit,RevCommit previousCommit, LogicalGraph g, DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception{
+		// trying to retrieve the commit from the existing graph. this could happen if the commit was introduced to the branch via merging another branch which contained the commit into the branch
+		Vertex source = getVertexFromGraph(g, commitVertexLabel, commitVertexFieldName, commit.getName()); 
+		// if the commit could not be retrieved, it is not yet part of the graph, but already part of the new vertices dataSet
+		if(source == null){
+			source = getVertexFromDataSet(commit.getName(), commitVertexLabel, commitVertexFieldName, vertices);
+		}
+		Vertex target = getVertexFromGraph(g, commitVertexLabel, commitVertexFieldName, commit.getName()); 
+		if(target == null){
+			target = getVertexFromDataSet(previousCommit.getName(), commitVertexLabel, commitVertexFieldName, vertices);
+		}
+		
+		Edge e = config.getEdgeFactory().createEdge(commitToNextCommitEdgeLabel, source.getId(),target.getId());
+		//returning the new edges dataSet containing the newly created edge
+		return addEdgeToDataSet(e, edges);
+	}
+		
+	
 	public DataSet<Vertex> addVertexToDataSet(Vertex v, DataSet<Vertex> ds){
 		return ds.union(config.getExecutionEnvironment().fromElements(v));
 	}
@@ -261,6 +287,8 @@ public class GradoopFiller implements ProgramDescription {
 		try {
 			Git git = new Git(repository);
 			List<Ref> branchs = git.branchList().setListMode(ListMode.ALL).call();
+			// the previously processed commit, i.e. one commit later in the revWalk as walks from the latest to the first commit
+			RevCommit previousCommit = null;
 			for (Ref branch : branchs) {
 				// System.out.println("\n\n ===== Writing branch: " +
 				// branch.getName() + " =======\n\n");
@@ -275,6 +303,10 @@ public class GradoopFiller implements ProgramDescription {
 						createVertexFromUser(commit.getAuthorIdent());
 						createEdgeToBranch(commit, branch);
 						createEdgeToUser(commit);
+						if (previousCommit != null) {
+							createEdgeFromPreviousToLatestCommit(commit,previousCommit);
+						}
+						previousCommit = commit;
 						commit = revWalk.next();
 					}
 				} catch (RevisionSyntaxException e) {
@@ -346,24 +378,32 @@ public class GradoopFiller implements ProgramDescription {
 				String identifier = branch.getName();
 				String latestCommitHash = "";
 				LogicalGraph branchGraph = analyzer.getGraphFromCollectionByBranchName(existingBranches, identifier);
+				// if the branch is already present
 				if (branchGraph != null) {
 					LogicalGraph newGraph = LogicalGraph.createEmptyGraph(config);
 					DataSet<Vertex> newVertices = newGraph.getVertices();
 					DataSet<Edge> newEdges = newGraph.getEdges();
+					RevCommit previousCommit = null;
 					latestCommitHash = branchGraph.getGraphHead().collect().get(0)
 							.getPropertyValue(GitAnalyzer.latestCommitHashLabel).getString();
 					try (RevWalk revWalk = new RevWalk(repository)) {
 						revWalk.markStart(revWalk.parseCommit(branch.getObjectId()));
 						RevCommit commit = revWalk.next();
+						// while the revwalk has not reached its end or the next commit is not the latest commit in the existing branch subgraph
 						while (commit != null && !commit.getName().toString().equals(latestCommitHash)) {
 							System.out.println(commit.getShortMessage());
 							newVertices = addCommitVertexToDataSet(commit, branchGraph, newVertices);
 							newVertices = addUserVertexToDataSet(commit, branchGraph, newVertices);
 							newEdges = addEdgeToBranchToDataSet(commit, branch, branchGraph, newEdges, newVertices);
 							newEdges = addEdgeToUserToDataSet(commit, branchGraph, newEdges, newVertices);
-							List<Vertex> tmp = newVertices.collect();
+							if (previousCommit != null) {
+								newEdges = addEdgeFromPreviousToLatestCommit(commit,previousCommit,branchGraph, newEdges, newVertices);
+							}
+							previousCommit = commit;
 							commit = revWalk.next();
 						}
+						//connecting the latest parsed commit with the previous latest commit
+						addEdgeFromPreviousToLatestCommit(commit,previousCommit, branchGraph, newEdges, newVertices);
 					} catch (RevisionSyntaxException e) {
 						// TODO Auto-generated catch block
 						e.printStackTrace();

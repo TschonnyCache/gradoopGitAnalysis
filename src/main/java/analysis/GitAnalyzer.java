@@ -189,9 +189,7 @@ public class GitAnalyzer implements Serializable {
 			//Remove duplicates
 			vertices = vertices.distinct(new Id<Vertex>());
 
-			Properties ghProps = new Properties();
-			ghProps.set(GradoopFiller.branchVertexFieldName, branch.getPropertyValue(GradoopFiller.branchVertexFieldName).getString());
-			GraphHead gh = new GraphHead(GradoopId.get(), GitAnalyzer.branchGraphHeadLabel, ghProps);
+			GraphHead gh = new GraphHead(GradoopId.get(), branch.getPropertyValue(GradoopFiller.branchVertexFieldName).getString(), new Properties());
 			LogicalGraph currentBranchSubGraph = GradoopFiller.createGraphFromDataSetsAndAddThemToHead(gh,vertices, edges, config);
 			currentBranchSubGraph = addLatestCommitOnThisBranchAsProperty(currentBranchSubGraph);
 			resGraphs.add(currentBranchSubGraph);
