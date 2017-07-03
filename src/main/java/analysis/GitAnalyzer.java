@@ -161,7 +161,7 @@ public class GitAnalyzer implements Serializable {
 //			DataSet<Edge> edges = commitToBranchEdges.union(userToCommitEdges);
 			
 			//Get edges to branch
-			DataSet<Edge> edges = graph.getEdges().filter(e -> {
+			DataSet<Edge> edgesToBranch = graph.getEdges().filter(e -> {
 				if (e.getTargetId().equals(branch.getId())) {
                     return true;
 				}
@@ -172,7 +172,7 @@ public class GitAnalyzer implements Serializable {
 			});
 			
 			//Get vertices that belong to branches
-			DataSet<Vertex> vertices = edges
+			DataSet<Vertex> vertices = edgesToBranch
 				.flatMap(new EdgeSourceTargetIds())
 				.rightOuterJoin(graph.getVertices())
 				.where(id -> id)
@@ -186,8 +186,46 @@ public class GitAnalyzer implements Serializable {
 						}
 					}
 				});
+			
 			//Remove duplicates
 			vertices = vertices.distinct(new Id<Vertex>());
+
+			//Add edges between final vertices
+			//first by source
+			DataSet<Edge> edgesBySource = vertices
+					.map(new Id<Vertex>())
+					.join(graph.getEdges())
+					.where(id -> id)
+					.equalTo(e -> e.getSourceId())
+					.with(new FlatJoinFunction<GradoopId,Edge,Edge>() {
+
+						@Override
+						public void join(GradoopId id, Edge e, Collector<Edge> out) throws Exception {
+							if(e.getSourceId().equals(id)){
+								out.collect(e);
+							}
+						}
+					});
+
+			//Then by target
+			DataSet<Edge> edgesByTarget = vertices
+					.map(new Id<Vertex>())
+					.join(graph.getEdges())
+					.where(id -> id)
+					.equalTo(e -> e.getTargetId())
+					.with(new FlatJoinFunction<GradoopId,Edge,Edge>() {
+
+						@Override
+						public void join(GradoopId id, Edge e, Collector<Edge> out) throws Exception {
+							if(e.getTargetId().equals(id)){
+								out.collect(e);
+							}
+						}
+					});
+			//Then perform union on them
+			DataSet<Edge> edges = edgesBySource.union(edgesByTarget);
+			//Make sure to remove duplicates
+			edges = edges.distinct(new Id<Edge>());
 
 			Properties ghProps = new Properties();
 			ghProps.set(GradoopFiller.branchVertexFieldName, branch.getPropertyValue(GradoopFiller.branchVertexFieldName).getString());

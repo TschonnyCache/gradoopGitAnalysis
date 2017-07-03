@@ -42,6 +42,11 @@ public class GradoopFillerTest {
 	Vertex userVertex;
 	ArrayList<Vertex> commitVertices = new ArrayList<Vertex>();
 	LogicalGraph testGraph;
+	
+	public static int testRepoCommits = 0;
+	public static int testRepoUser = 0;
+	public static int testRepoBranches = 0;
+	
 
 	public static final String testGraphUserEmail = "bob@example.com";
 
@@ -61,6 +66,7 @@ public class GradoopFillerTest {
 			fw.close();
 			commits.add(commit);
 		}
+		testRepoCommits = commits.size();
 
 
 		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -68,6 +74,8 @@ public class GradoopFillerTest {
 		Properties branchProperties = new Properties();
 		branchProperties.set("name", GitAnalyzerTest.branchName);
 		branchVertex = config.getVertexFactory().createVertex(GradoopFiller.branchVertexLabel, branchProperties);
+		//TODO still a magic number
+		testRepoBranches = 1;
 
 		PersonIdent user = commits.get(0).getAuthorIdent();
 		Properties userProperties = new Properties();
@@ -77,6 +85,8 @@ public class GradoopFillerTest {
 		userProperties.set("timezone", user.getTimeZone().getRawOffset());
 		userProperties.set("timezoneOffset", user.getTimeZoneOffset());
 		userVertex = config.getVertexFactory().createVertex(GradoopFiller.userVertexLabel, userProperties);
+		//TODO still a magic number
+		testRepoUser = 1;
 
 		for (RevCommit commit: commits){
 			Properties commitProperties = new Properties();
@@ -140,6 +150,7 @@ public class GradoopFillerTest {
 		GradoopFiller gf = new GradoopFiller(config, analyzer);
 		LogicalGraph graph = gf.parseGitRepoIntoGraph(pathToRepo);
 		List<Vertex> vertices = graph.getVertices().collect();
+		assertEquals(testRepoBranches + testRepoCommits + testRepoUser, vertices.size());
 		//contains the gradoopIds of the commits, because all the edges start at the commits
 		ArrayList<GradoopId> edgeSources = new ArrayList<GradoopId>();
 		ArrayList<GradoopId> edgeTargets = new ArrayList<GradoopId>();
@@ -170,18 +181,15 @@ public class GradoopFillerTest {
 				assertEquals(commitVertex.getPropertyValue("message"), v.getPropertyValue("message"));
 				edgeSources.add(v.getId());
 				edgeTargets.add(v.getId());
-				//TODO do something like this
-				//if (!commitVertex.getPropertyValue("name").equals(firstCommitHash) {
-				// edgeTargets.add(v.getId()}
 				break;
 			}
 		}
 		List<Edge> edges = graph.getEdges().collect();
+		//Edges ar between: Commit/Branche, Commit/User, Commit/previousCommit
+		assertEquals(testRepoBranches*testRepoCommits + testRepoCommits*testRepoUser + (testRepoCommits - 1), edges.size());
 		for (Edge e : edges) {
-			for (GradoopId edgeSource:edgeSources){
-				assertEquals(edgeSource, e.getSourceId());
-				assertTrue(edgeTargets.contains(e.getTargetId()));
-			}
+			assertTrue(edgeSources.contains(e.getSourceId()));
+			assertTrue(edgeTargets.contains(e.getTargetId()));
 		}
 	}
 
@@ -191,16 +199,11 @@ public class GradoopFillerTest {
 		GradoopFiller gf = new GradoopFiller(config, analyzer);
 		LogicalGraph graph = gf.parseGitRepoIntoGraph(pathToRepo);
 
-		GradoopId graphID = graph.getGraphHead().collect().get(0).getId();
-		DataSet<Vertex> verticesDS = graph.getVertices().filter(new InGraph<>(graphID));
-		List<Vertex> tmp = verticesDS.collect();
-
 		GraphCollection collection = analyzer.transformBranchesToSubgraphs(graph, config);
 		LogicalGraph branch = analyzer.getGraphFromCollectionByBranchName(collection, GitAnalyzerTest.branchName);
 		List<Vertex> vertices = branch.getVertices().collect();
-		//TODO these are magic numbers and should be replaced
-		assertEquals(5, vertices.size());
-		assertEquals(8, collection.getEdges().collect().size());
+		assertEquals(testRepoBranches + testRepoCommits + testRepoUser, vertices.size());
+		assertEquals(testRepoBranches*testRepoCommits + testRepoCommits*testRepoUser + (testRepoCommits - 1), collection.getEdges().collect().size());
 	}
 
 	@Test
@@ -210,9 +213,8 @@ public class GradoopFillerTest {
 		LogicalGraph graph = gf.parseGitRepoIntoGraph(pathToRepo);
 		GraphCollection collection = analyzer.transformBranchesToSubgraphs(graph, config);
 		List<Vertex> vertices = collection.getVertices().collect();
-		//TODO these are magic numbers and should be replaced
-		assertEquals(5, vertices.size());
-		assertEquals(8, collection.getEdges().collect().size());
+		assertEquals(testRepoBranches + testRepoCommits + testRepoUser, vertices.size());
+		assertEquals(testRepoBranches*testRepoCommits + testRepoCommits*testRepoUser + (testRepoCommits - 1), collection.getEdges().collect().size());
 
 		String filePath = pathToRepo + "test2.txt";
 		FileWriter fw = new FileWriter(filePath);
@@ -228,12 +230,13 @@ public class GradoopFillerTest {
 
 		collection = gf.updateGraphCollection(pathToRepo, collection);
 
-		List<Vertex> vUp = collection.getVertices().collect();
-		List<Edge> eUp = collection.getEdges().collect();
+		//Since we made a new commit there should be one more
+		assertEquals(testRepoBranches + testRepoCommits + testRepoUser + 1, collection.getVertices().collect().size());
 		boolean foundNewVertex = false;
-		for (Vertex v : collection.getVertices().collect()) {
+		List<Vertex> updatedVertices = collection.getVertices().collect();
+		for (Vertex v : updatedVertices) {
 			if (v.getLabel().equals(GradoopFiller.commitVertexLabel)
-					&& v.getPropertyValue("time").equals(updatedCommitVertex.getPropertyValue("name"))) {
+					&& v.getPropertyValue("name").equals(updatedCommitVertex.getPropertyValue("name"))) {
 				foundNewVertex = true;
 			}
 		}

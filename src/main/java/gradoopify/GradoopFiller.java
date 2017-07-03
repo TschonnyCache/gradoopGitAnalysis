@@ -30,6 +30,7 @@ import org.gradoop.flink.io.api.DataSink;
 import org.gradoop.flink.io.impl.json.JSONDataSink;
 import org.gradoop.flink.model.impl.GraphCollection;
 import org.gradoop.flink.model.impl.LogicalGraph;
+import org.gradoop.flink.model.impl.functions.epgm.Id;
 import org.gradoop.flink.model.impl.functions.graphcontainment.AddToGraph;
 import org.gradoop.flink.util.GradoopFlinkConfig;
 
@@ -418,10 +419,13 @@ public class GradoopFiller implements ProgramDescription {
 						e.printStackTrace();
 					}
 					newGraph = createGraphFromDataSetsAndAddThemToHead(config.getGraphHeadFactory().createGraphHead(),newVertices,newEdges, config);
-					List<Vertex> tmp = newGraph.getVertices().collect();
 					branchGraph = branchGraph.combine(newGraph);
-					tmp = branchGraph.getVertices().collect();
-					updatedGraphs = existingBranches.union(GraphCollection.fromGraph(branchGraph));
+					DataSet<Vertex> updatedVertices = branchGraph.getVertices().union(existingBranches.getVertices()).distinct(new Id<Vertex>());
+					DataSet<Edge> updatedEdges = branchGraph.getEdges().union(existingBranches.getEdges()).distinct(new Id<Edge>());
+					DataSet<GraphHead> newGraphHead = branchGraph.getGraphHead();
+					DataSet<GraphHead> updatedGraphHead = existingBranches.getGraphHeads().filter(g -> !g.getPropertyValue(GradoopFiller.branchVertexFieldName).equals(identifier));
+					updatedGraphHead = updatedGraphHead.union(newGraphHead);
+					updatedGraphs = GraphCollection.fromDataSets(updatedGraphHead, updatedVertices, updatedEdges, config);
 				} else { // Create new branch
 					createVertexFromBranch(branch);
 					try (RevWalk revWalk = new RevWalk(repository)) {

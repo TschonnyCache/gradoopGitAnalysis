@@ -3,6 +3,7 @@ package gradoopGitAnalysis;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.util.Arrays;
 import java.util.List;
 
 import org.apache.flink.api.java.DataSet;
@@ -31,6 +32,11 @@ public class GitAnalyzerTest {
 	public static final String latestCommitHash = "fd9b02853a6bf1f123a350e536dfa90fdbe12f3b";
 	public static final String branchName = "refs/heads/master";
 	public static final String branchUpName = "refs/remotes/origin";
+	public static int branchVertices;
+	public static int branchEdges;
+	public static int branchUpVertices;
+	public static int branchUpEdges;
+	public static int graphHeads;
 	
 	@Before
 	public void setupData() throws Exception{
@@ -82,10 +88,18 @@ public class GitAnalyzerTest {
 		GraphHead gh2 = new GraphHead(GradoopId.get(), GitAnalyzer.branchGraphHeadLabel, gh2Properties);
 		
 		//Add vertices and edges to corresponding GraphHeads
-		DataSet<Vertex> verticesForg1 = env.fromElements(branchVertex, userVertex, commitVertex);
-		DataSet<Vertex> verticesForg2 = env.fromElements(branchUpVertex, userVertex, commitVertex);
-		DataSet<Edge> edgesForg1 = env.fromElements(edgeToUser,edgeToBranch);
-		DataSet<Edge> edgesForg2 = env.fromElements(edgeToUser,edgeToUpBranch);
+		List<Vertex> verticesForg1List = Arrays.asList(branchVertex, userVertex, commitVertex);
+		List<Vertex> verticesForg2List = Arrays.asList(branchUpVertex, userVertex, commitVertex);
+		branchVertices = verticesForg1List.size();
+		branchUpVertices = verticesForg2List.size();
+		List<Edge> edgesForg1List = Arrays.asList(edgeToUser, edgeToBranch);
+		List<Edge> edgesForg2List = Arrays.asList(edgeToUser, edgeToUpBranch);
+		branchEdges = edgesForg1List.size();
+		branchUpEdges = edgesForg2List.size();
+		DataSet<Vertex> verticesForg1 = env.fromCollection(verticesForg1List);
+		DataSet<Vertex> verticesForg2 = env.fromCollection(verticesForg2List);
+		DataSet<Edge> edgesForg1 = env.fromCollection(edgesForg1List);
+		DataSet<Edge> edgesForg2 = env.fromCollection(edgesForg2List);
 		verticesForg1 = addVertexDataSetToGraphHead(gh1,verticesForg1);
 		verticesForg2 = addVertexDataSetToGraphHead(gh2,verticesForg2);
 		edgesForg1 = addEdgeDataSetToGraphHead(gh1,edgesForg1);
@@ -93,6 +107,8 @@ public class GitAnalyzerTest {
 		DataSet<Vertex> verticesForCollection = verticesForg1.union(verticesForg2);
 		DataSet<Edge> edgesForCollection = edgesForg1.union(edgesForg2);
 		
+		List<GraphHead> graphHeadsForCollection = Arrays.asList(gh1,gh2);
+		graphHeads = graphHeadsForCollection.size();
 		testCollection = GraphCollection.fromDataSets(env.fromElements(gh1,gh2),verticesForCollection,edgesForCollection,config);
 		analyzer = new GitAnalyzer();
 	}
@@ -118,14 +134,19 @@ public class GitAnalyzerTest {
 		List<Vertex> tmvertices = transformed.getVertices().collect();
 		List<Edge> tmedges = transformed.getEdges().collect();
 		List<GraphHead> tmghs = transformed.getGraphHeads().collect();
-		assertEquals(4,transformed.getVertices().collect().size());
-		assertEquals(4,transformed.getEdges().collect().size());
-		assertEquals(2,ghs.size());
+		assertEquals(testGraph.getVertices().count(),transformed.getVertices().collect().size());
+		assertEquals(branchUpEdges + branchEdges,transformed.getEdges().collect().size());
+		assertEquals(testCollection.getGraphHeads().count(),ghs.size());
 		for(GraphHead gh: ghs){
-			assertTrue(gh.getPropertyValue("name").getString().equals(branchName) || gh.getPropertyValue("name").getString().equals(branchUpName));
 			assertEquals(latestCommitHash, gh.getPropertyValue(GitAnalyzer.latestCommitHashLabel).getString());
 			List<Vertex> vertices = transformed.getVertices().filter(new InGraph<>(gh.getId())).collect();
-			assertEquals(3, vertices.size());
+			if(gh.getPropertyValue("name").getString().equals(branchName)){
+				assertEquals(branchVertices, vertices.size());
+			}else if(gh.getPropertyValue("name").getString().equals(branchUpName)){
+				assertEquals(branchUpVertices, vertices.size());
+			}else{
+				assertTrue("Unknown branch after splitting graph into branches",false);
+			}
 		}
 	}
 
@@ -141,7 +162,7 @@ public class GitAnalyzerTest {
 		assertEquals(branchName, gh.getPropertyValue("name").getString());
 
 		List<Vertex> vertices = out.getVertices().collect();
-		assertEquals(3,vertices.size());
+		assertEquals(branchVertices,vertices.size());
 		for(Vertex v: vertices){
 			if(v.getLabel().equals(GitAnalyzer.branchGraphHeadLabel)){
 				assertEquals(branchName, v.getPropertyValue("name").getString());
@@ -149,7 +170,7 @@ public class GitAnalyzerTest {
 		}
 		
 		List<Edge> edges = out.getEdges().collect();
-		assertEquals(2,edges.size());
+		assertEquals(branchEdges,edges.size());
 	}
 	
 	@Test
@@ -163,7 +184,7 @@ public class GitAnalyzerTest {
 		assertEquals(branchName, gh.getPropertyValue("name").getString());
 
 		List<Vertex> vertices = out.getVertices().collect();
-		assertEquals(3,vertices.size());
+		assertEquals(branchVertices,vertices.size());
 		for(Vertex v: vertices){
 			if(v.getLabel().equals(GitAnalyzer.branchGraphHeadLabel)){
 				assertEquals(branchName, v.getPropertyValue("name").getString());
@@ -171,7 +192,7 @@ public class GitAnalyzerTest {
 		}
 		
 		List<Edge> edges = out.getEdges().collect();
-		assertEquals(2,edges.size());
+		assertEquals(branchEdges,edges.size());
 
 	}
 
