@@ -69,6 +69,16 @@ public class GradoopFiller implements ProgramDescription {
 		this.config = config;
 	}
 
+	/**
+	 * Tries to find a vertex in the given graph by performing a filter function on the vertices of the graph.
+	 * The filter function looks for the correct label, and then checks if the property of the propertykey is equal to the identifier
+	 * @param identifier property that is unique for vertex type
+	 * @param label type of vertex e.g. user
+	 * @param propertyKey key of the identifier property
+	 * @param graph graph where the vertex should be searched
+	 * @return vertex if it is found else null
+	 * @throws Exception
+	 */
 	public Vertex getVertexFromGraph(String identifier, String label, String propertyKey, LogicalGraph graph)
 			throws Exception {
 		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
@@ -96,6 +106,16 @@ public class GradoopFiller implements ProgramDescription {
 		return filtered.getVertices().collect().get(0);
 	}
 
+	/**
+	 * Tries to find a vertex in the given dataset by performing a filter function on the dataset.
+	 * The filter function looks for the correct label, and then checks if the property of the propertykey is equal to the identifier
+	 * @param identifier property that is unique for vertex type
+	 * @param label type of vertex e.g. user
+	 * @param propertyKey key of the identifier property
+	 * @param ds dataset where the vertex should be searched
+	 * @return vertex if it is found else null
+	 * @throws Exception
+	 */
 	public Vertex getVertexFromDataSet(String identifier, String label, String propertyKey, DataSet<Vertex> ds)
 			throws Exception {
 		DataSet<Vertex> filtered = ds.filter(new FilterFunction<Vertex>() {
@@ -124,6 +144,14 @@ public class GradoopFiller implements ProgramDescription {
 		return filtered.collect().get(0);
 	}
 
+	/**
+	 * Tries to find the user vertex in the given graph. If it cannot be found it is created
+	 * @param c commit of the user
+	 * @param g graph where the user vertex might already be
+	 * @param ds current vertices where the user will be added
+	 * @return ds with the vertex added
+	 * @throws Exception
+	 */
 	public DataSet<Vertex> addUserVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception {
 		PersonIdent user = c.getAuthorIdent();
 		Vertex v = getVertexFromGraph(user.getEmailAddress(), userVertexLabel, userVertexFieldEmail, g);
@@ -139,6 +167,12 @@ public class GradoopFiller implements ProgramDescription {
 		return addVertexToDataSet(v, ds);
 	}
 
+	/**
+	 * Tries to find the user vertex in the given dataset. If it cannot be found it is created
+	 * @param c commit of the user
+	 * @param ds current vertices where the user vertex will be added if it is not already inside
+	 * @throws Exception
+	 */
 	public DataSet<Vertex> addUserVertexToDataSet(RevCommit c, DataSet<Vertex> ds) throws Exception {
 		PersonIdent user = c.getAuthorIdent();
 		Vertex v = getVertexFromDataSet(user.getEmailAddress(), userVertexLabel, userVertexFieldEmail, ds);
@@ -156,6 +190,13 @@ public class GradoopFiller implements ProgramDescription {
 		return ds;
 	}
 
+	/**
+	 * Tries to find the user vertex in the given graph collection. If it cannot be found it is created
+	 * @param c commit of the user
+	 * @param gc graph collection where the user vertex might be
+	 * @param ds current vertices where the user vertex will be added
+	 * @throws Exception
+	 */
 	public DataSet<Vertex> addUserVertexToDataSet(RevCommit c, GraphCollection gc, DataSet<Vertex> ds)
 			throws Exception {
 		PersonIdent user = c.getAuthorIdent();
@@ -173,6 +214,14 @@ public class GradoopFiller implements ProgramDescription {
 		return addVertexToDataSet(v, ds);
 	}
 
+
+	/**
+	 * Tries to find the branch vertex in the given graph. If it cannot be found it is created
+	 * @param c commit of the user
+	 * @param g graph where the user vertex might be
+	 * @param ds current vertices where the user vertex will be added
+	 * @throws Exception
+	 */
 	public DataSet<Vertex> addBranchVertexToDataSet(Ref c, LogicalGraph g, DataSet<Vertex> ds) throws Exception {
 		Vertex v = getVertexFromGraph(c.getName(), userVertexLabel, userVertexFieldEmail, g);
 		if (v == null) {
@@ -183,6 +232,12 @@ public class GradoopFiller implements ProgramDescription {
 		return addVertexToDataSet(v, ds);
 	}
 
+	/**
+	 * Creates a branch vertex and adds it to the dataset
+	 * @param c commit of the user
+	 * @param ds current vertices where the user vertex will be added
+	 * @throws Exception
+	 */
 	public DataSet<Vertex> addBranchVertexToDataSet(Ref c, DataSet<Vertex> ds) throws Exception {
         Properties props = new Properties();
         props.set("name", c.getName());
@@ -190,6 +245,13 @@ public class GradoopFiller implements ProgramDescription {
 		return addVertexToDataSet(v, ds);
 	}
 
+	/**
+	 * Tries to find the commit vertex in the given graph collection. If it cannot be found it is created
+	 * @param c commit of the user
+	 * @param gc graph collection where the vertex might be found
+	 * @param ds current vertices where the vertex will be added
+	 * @throws Exception
+	 */
 	public DataSet<Vertex> addCommitVertexToDataSet(RevCommit c, GraphCollection gc, DataSet<Vertex> ds)
 			throws Exception {
 		Vertex v = getVertexFromDataSet(c.getName(), commitVertexLabel, commitVertexFieldName, gc.getVertices());
@@ -203,6 +265,13 @@ public class GradoopFiller implements ProgramDescription {
 		return addVertexToDataSet(v, ds);
 	}
 
+	/**
+	 * Tries to find the commit vertex in the given graph. If it cannot be found it is created
+	 * @param c commit of the user
+	 * @param g graph where the vertex might be found
+	 * @param ds current vertices where the vertex will be added
+	 * @throws Exception
+	 */
 	public DataSet<Vertex> addCommitVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception {
 		Vertex v = getVertexFromGraph(c.getName(), userVertexLabel, userVertexFieldEmail, g);
 		if (v == null) {
@@ -215,6 +284,12 @@ public class GradoopFiller implements ProgramDescription {
 		return addVertexToDataSet(v, ds);
 	}
 
+	/**
+	 * Creates a new commit vertex and adds it to the dataset
+	 * @param c commit of the user
+	 * @param ds current vertices where the vertex will be added
+	 * @throws Exception
+	 */
 	public DataSet<Vertex> addCommitVertexToDataSet(RevCommit c, DataSet<Vertex> ds) throws Exception {
         Properties props = new Properties();
         props.set("name", c.name());
@@ -224,6 +299,15 @@ public class GradoopFiller implements ProgramDescription {
 		return addVertexToDataSet(v, ds);
 	}
 
+	/**
+	 * Creates an edge from the commit to the branch by getting the vertices from the vertices dataset
+	 * @param c source of the edge
+	 * @param branch target of the edge
+	 * @param edges current edges where the edge will be added
+	 * @param vertices dataset where the source and target of the edge are located
+	 * @return edge dataset with the new edge added
+	 * @throws Exception
+	 */
 	public DataSet<Edge> addEdgeToBranchToDataSet(RevCommit c, Ref branch, DataSet<Edge> edges,
 			DataSet<Vertex> vertices) throws Exception {
 		Vertex source = getVertexFromDataSet(c.getName(), commitVertexLabel, commitVertexFieldName, vertices);
@@ -232,6 +316,17 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 
+	/**
+	 * Creates an edge from the commit to the branch by getting the vertices from the graph, 
+	 * if they cannot be found there this method will look in the vertices dataset
+	 * @param c source of the edge
+	 * @param g graph where the vertices might be located
+	 * @param branch target of the edge
+	 * @param edges current edges where the edge will be added
+	 * @param vertices dataset where the vertices might be located
+	 * @return edge dataset with the new edge added
+	 * @throws Exception
+	 */
 	public DataSet<Edge> addEdgeToBranchToDataSet(RevCommit c, Ref branch, LogicalGraph g, DataSet<Edge> edges,
 			DataSet<Vertex> vertices) throws Exception {
 		Vertex source = getVertexFromGraph(c.getName(), commitVertexLabel, commitVertexFieldName, g);
@@ -243,6 +338,17 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 
+	/**
+	 * Creates an edge from the commit to the user by getting the vertices from the graph collection, 
+	 * if they cannot be found there this method will look in the vertices dataset
+	 * @param c source of the edge
+	 * @param gc graph collection where the vertices might be located
+	 * @param branch target of the edge
+	 * @param edges current edges where the edge will be added
+	 * @param vertices dataset where the vertices might be located
+	 * @return edge dataset with the new edge added
+	 * @throws Exception
+	 */
 	public DataSet<Edge> addEdgeToUserToDataSet(RevCommit c, GraphCollection gc, DataSet<Edge> edges,
 			DataSet<Vertex> vertices) throws Exception {
 		Vertex source = getVertexFromDataSet(c.getName(), commitVertexLabel, commitVertexFieldName, gc.getVertices());
@@ -260,6 +366,17 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 
+	/**
+	 * Creates an edge from the commit to the user by getting the vertices from the graph , 
+	 * if they cannot be found there this method will look in the vertices dataset
+	 * @param c source of the edge
+	 * @param g graph where the vertices might be located
+	 * @param branch target of the edge
+	 * @param edges current edges where the edge will be added
+	 * @param vertices dataset where the vertices might be located
+	 * @return edge dataset with the new edge added
+	 * @throws Exception
+	 */
 	public DataSet<Edge> addEdgeToUserToDataSet(RevCommit c, LogicalGraph g, DataSet<Edge> edges,
 			DataSet<Vertex> vertices) throws Exception {
 		Vertex source = getVertexFromGraph(c.getName(), commitVertexLabel, commitVertexFieldName, g);
@@ -275,6 +392,15 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 
+	/**
+	 * Creates an edge from the commit to the user by getting the vertices dataset
+	 * @param c source of the edge
+	 * @param branch target of the edge
+	 * @param edges current edges where the edge will be added
+	 * @param vertices dataset where the vertices might be located
+	 * @return edge dataset with the new edge added
+	 * @throws Exception
+	 */
 	public DataSet<Edge> addEdgeToUserToDataSet(RevCommit c, DataSet<Edge> edges,
 			DataSet<Vertex> vertices) throws Exception {
 		Vertex source = getVertexFromDataSet(c.getName(), commitVertexLabel, commitVertexFieldName, vertices);
@@ -283,6 +409,15 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 
+	/**
+	 * Adds an edge from commit to previous commit to the edges dataset
+	 * @param commit commit
+	 * @param previousCommit parent of commit
+	 * @param edges current edges dataset where the new edge will be added
+	 * @param vertices dataset where the vertices are located
+	 * @return edge dataset with new edge added
+	 * @throws Exception
+	 */
 	public DataSet<Edge> addEdgeFromPreviousToLatestCommit(RevCommit commit, RevCommit previousCommit,
 			DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception {
 		Vertex source = getVertexFromDataSet(commit.getName(), commitVertexLabel, commitVertexFieldName, vertices);
@@ -293,6 +428,16 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 
+	/**
+	 * Adds an edge from commit to previous commit to the edges dataset
+	 * @param commit commit
+	 * @param previousCommit parent of commit
+	 * @param g graph where the vertices might be located
+	 * @param edges current edges dataset where the new edge will be added
+	 * @param vertices dataset where the vertices might be located
+	 * @return edge dataset with new edge added
+	 * @throws Exception
+	 */
 	public DataSet<Edge> addEdgeFromPreviousToLatestCommit(RevCommit commit, RevCommit previousCommit, LogicalGraph g,
 			DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception {
 		// trying to retrieve the commit from the existing graph. this could
@@ -314,14 +459,33 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 
+	/**
+	 * adds a vertex to the dataset by utilizing {@link DataSet#union(DataSet)}
+	 * @param v vertex that should be added
+	 * @param ds dataset where the vertex should be added
+	 * @return dataset containing the vertex
+	 */
 	public DataSet<Vertex> addVertexToDataSet(Vertex v, DataSet<Vertex> ds) {
 		return ds.union(config.getExecutionEnvironment().fromElements(v));
 	}
 
+	/**
+	 * adds an edge to the dataset by utilizing {@link DataSet#union(DataSet)}
+	 * @param e edge that should be added
+	 * @param ds dataset where the edge should be added
+	 * @return dataset containing the edge
+	 */
 	public DataSet<Edge> addEdgeToDataSet(Edge e, DataSet<Edge> ds) {
 		return ds.union(config.getExecutionEnvironment().fromElements(e));
 	}
 
+	/**
+	 * Uses JGit to load the git repository that is located at the given path.
+	 * Vertices and edges that represent the repository are created and added to a {@link LogicalGraph} 
+	 * @param pathToGitRepo where the repo is located
+	 * @return graph containing the vertices, edges and a graph head
+	 * @throws Exception
+	 */
 	public LogicalGraph parseGitRepoIntoGraph(String pathToGitRepo) throws Exception {
 		LoadJGit ljg = new LoadJGit();
 		Repository repository = ljg.openRepo(pathToGitRepo);
@@ -377,16 +541,15 @@ public class GradoopFiller implements ProgramDescription {
 		return graph;
 	}
 
-//	public static LogicalGraph createGraphFromCollectionsAndAddThemToHead(GraphHead head, Collection<Vertex> vertices,
-//			Collection<Edge> edges, GradoopFlinkConfig config) {
-//		DataSet<Vertex> verticesDS = config.getExecutionEnvironment().fromCollection(vertices);
-//		DataSet<Edge> edgesDS = config.getExecutionEnvironment().fromCollection(edges);
-//		verticesDS = addVertexDataSetToGraphHead(head, verticesDS);
-//		edgesDS = addEdgeDataSetToGraphHead(head, edgesDS);
-//		return LogicalGraph.fromDataSets(config.getExecutionEnvironment().fromElements(head), verticesDS, edgesDS,
-//				config);
-//	}
-
+	/**
+	 * Creates a {@link LogicalGraph} with the given datasets and calls {@link #addVertexDataSetToGraphHead} and {@link #addEdgeDataSetToGraphHead} on the 
+	 * corresponding datasets
+	 * @param head graph head
+	 * @param vertices vertices of graph
+	 * @param edges edges of graph
+	 * @param config gradoop config
+	 * @return graph containing vertices, edges and head
+	 */
 	public static LogicalGraph createGraphFromDataSetsAndAddThemToHead(GraphHead head, DataSet<Vertex> vertices,
 			DataSet<Edge> edges, GradoopFlinkConfig config) {
 		vertices = addVertexDataSetToGraphHead(head, vertices);
@@ -394,16 +557,37 @@ public class GradoopFiller implements ProgramDescription {
 		return LogicalGraph.fromDataSets(config.getExecutionEnvironment().fromElements(head), vertices, edges, config);
 	}
 
+	/**
+	 * Adds vertices to a graph head by calling map on the vertices with {@link AddToGraph}
+	 * @param graphHead head
+	 * @param vertices vertices that should be added to the head
+	 * @return vetices with updated gradoopidlists
+	 */
 	private static DataSet<Vertex> addVertexDataSetToGraphHead(GraphHead graphHead, DataSet<Vertex> vertices) {
 		vertices = vertices.map(new AddToGraph<>(graphHead)).withForwardedFields("id;label;properties");
 		return vertices;
 	}
 
+	/**
+	 * Adds edges to a graph head by calling map on the edges with {@link AddToGraph}
+	 * @param graphHead head
+	 * @param edges edges that should be added to the head
+	 * @return vetices with updated gradoopidlists
+	 */
 	private static DataSet<Edge> addEdgeDataSetToGraphHead(GraphHead graphHead, DataSet<Edge> edges) {
 		edges = edges.map(new AddToGraph<>(graphHead)).withForwardedFields("id;sourceId;targetId;label;properties");
 		return edges;
 	}
 
+	/**
+	 * Updates graph collection using the git repo in the given path.
+	 * The graph collection needs to be of the same structure as the output of {@link GitAnalyzer#transformBranchesToSubgraphs}.
+	 * This structure is preserved in out the updated collection.
+	 * @param pathToGitRepo where the git repo is located
+	 * @param existingBranches collection with the branches as logical graphs
+	 * @return updated collection containing new commits/branches
+	 * @throws Exception
+	 */
 	public GraphCollection updateGraphCollection(String pathToGitRepo, GraphCollection existingBranches)
 			throws Exception {
 		LoadJGit ljg = new LoadJGit();
@@ -530,7 +714,6 @@ public class GradoopFiller implements ProgramDescription {
 	}
 
 	public String getDescription() {
-		// TODO Auto-generated method stub
-		return null;
+		return "Reads a git repository from a path and turns it into a Gradoop graph";
 	}
 }

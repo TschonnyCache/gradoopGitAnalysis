@@ -9,9 +9,10 @@ import org.apache.flink.api.common.functions.CoGroupFunction;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.FlatJoinFunction;
 import org.apache.flink.api.common.functions.FlatMapFunction;
-import org.apache.flink.api.common.functions.JoinFunction;
+import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.util.Collector;
 import org.gradoop.common.model.impl.id.GradoopId;
 import org.gradoop.common.model.impl.id.GradoopIdList;
@@ -19,14 +20,16 @@ import org.gradoop.common.model.impl.pojo.Edge;
 import org.gradoop.common.model.impl.pojo.GraphHead;
 import org.gradoop.common.model.impl.pojo.Vertex;
 import org.gradoop.common.model.impl.properties.Properties;
+import org.gradoop.common.model.impl.properties.PropertyValue;
 import org.gradoop.flink.io.api.DataSink;
 import org.gradoop.flink.io.impl.json.JSONDataSink;
 import org.gradoop.flink.model.api.functions.TransformationFunction;
+import org.gradoop.flink.model.api.functions.VertexAggregateFunction;
 import org.gradoop.flink.model.impl.GraphCollection;
 import org.gradoop.flink.model.impl.LogicalGraph;
 import org.gradoop.flink.model.impl.functions.epgm.Id;
 import org.gradoop.flink.model.impl.functions.graphcontainment.InGraph;
-import org.gradoop.flink.model.impl.operators.aggregation.functions.count.VertexCount;
+import org.gradoop.flink.model.impl.operators.aggregation.functions.count.Count;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.min.MinVertexProperty;
 import org.gradoop.flink.util.GradoopFlinkConfig;
 
@@ -39,35 +42,32 @@ public class GitAnalyzer implements Serializable {
 	public static final String branchGraphHeadLabel = "branch";
 	public static final String latestCommitHashLabel = "latestCommitHash";
 
+	/**
+	 * Aggregates the users using {@ 
+	 * @param graph
+	 * @return
+	 */
 	public LogicalGraph createUserCount(LogicalGraph graph) {
-		LogicalGraph userSubGraph = graph.subgraph(new FilterFunction<Vertex>() {
-
-			/**
-			 * 
-			 */
-			private static final long serialVersionUID = -1733961439448245556L;
-
-			@Override
-			public boolean filter(Vertex v) throws Exception {
-				return v.getLabel().equals(GradoopFiller.userVertexLabel);
-			}
-
-		}, new FilterFunction<Edge>() {
-
-			/**
-			 * 
-			 */
-			private static final long serialVersionUID = 1679554295734115110L;
-
-			@Override
-			public boolean filter(Edge arg0) throws Exception {
-				return false;
-			}
-
-		});
-		return userSubGraph.aggregate(new VertexCount());
+		return graph.aggregate(new UserCount());
 	}
+	
+	public class UserCount extends Count implements VertexAggregateFunction{
 
+		@Override
+		public String getAggregatePropertyKey() {
+			return "userCount";
+		}
+
+		@Override
+		public PropertyValue getVertexIncrement(Vertex vertex) {
+			if(vertex.getLabel().equals(GradoopFiller.userVertexLabel)){
+				return PropertyValue.create(1L);
+			}
+			return PropertyValue.create(0L);
+		}
+		
+	}
+	
 	/**
 	 * Adds Subgraphs to the graph which represent a branch. each of these
 	 * branch subgraphs then contains all the commits belonging to the branch, the branch vertex and user vertices

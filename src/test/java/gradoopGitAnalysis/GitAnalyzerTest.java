@@ -206,6 +206,6 @@ public class GitAnalyzerTest {
 	public void createUserCount() throws Exception{
 		LogicalGraph out = analyzer.createUserCount(testGraph.copy());
 		out.getGraphHead().print();
-		assertEquals(1, out.getGraphHead().collect().get(0).getPropertyValue("vertexCount").getLong());
+		assertEquals(1, out.getGraphHead().collect().get(0).getPropertyValue("userCount").getLong());
 	}
 }
