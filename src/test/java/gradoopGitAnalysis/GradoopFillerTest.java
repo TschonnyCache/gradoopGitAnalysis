@@ -25,7 +25,6 @@ import org.gradoop.common.model.impl.properties.Properties;
 import org.gradoop.flink.model.impl.GraphCollection;
 import org.gradoop.flink.model.impl.LogicalGraph;
 import org.gradoop.flink.model.impl.functions.graphcontainment.AddToGraph;
-import org.gradoop.flink.model.impl.functions.graphcontainment.InGraph;
 import org.gradoop.flink.util.GradoopFlinkConfig;
 import org.junit.After;
 import org.junit.Before;
@@ -38,6 +37,7 @@ public class GradoopFillerTest {
 	String pathToRepo = "src/test/resources/mockgit/";
 	Git git;
 	GradoopFlinkConfig config;
+	ExecutionEnvironment env;
 	Vertex branchVertex;
 	Vertex userVertex;
 	ArrayList<Vertex> commitVertices = new ArrayList<Vertex>();
@@ -58,6 +58,7 @@ public class GradoopFillerTest {
 		}
 		git = Git.init().setDirectory(repoDir).call();
 		ArrayList<RevCommit> commits = new ArrayList<RevCommit>();
+		// creating some commits
 		for (int i = 0; i<3; i++) {
 			String filePath = pathToRepo + "test"+i+".txt";
 			FileWriter fw = new FileWriter(filePath);
@@ -69,7 +70,7 @@ public class GradoopFillerTest {
 		testRepoCommits = commits.size();
 
 
-		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+		env = ExecutionEnvironment.getExecutionEnvironment();
 		config = GradoopFlinkConfig.createConfig(env);
 		Properties branchProperties = new Properties();
 		branchProperties.set("name", GitAnalyzerTest.branchName);
@@ -180,12 +181,13 @@ public class GradoopFillerTest {
 				assertEquals(commitVertex.getPropertyValue("time"), v.getPropertyValue("time"));
 				assertEquals(commitVertex.getPropertyValue("message"), v.getPropertyValue("message"));
 				edgeSources.add(v.getId());
+				//TODO only do this if it's not the initial commit
 				edgeTargets.add(v.getId());
 				break;
 			}
 		}
 		List<Edge> edges = graph.getEdges().collect();
-		//Edges ar between: Commit/Branche, Commit/User, Commit/previousCommit
+		//Edges are between: Commit/Branch, Commit/User, Commit/previousCommit
 		assertEquals(testRepoBranches*testRepoCommits + testRepoCommits*testRepoUser + (testRepoCommits - 1), edges.size());
 		for (Edge e : edges) {
 			assertTrue(edgeSources.contains(e.getSourceId()));
@@ -216,10 +218,17 @@ public class GradoopFillerTest {
 		assertEquals(testRepoBranches + testRepoCommits + testRepoUser, vertices.size());
 		assertEquals(testRepoBranches*testRepoCommits + testRepoCommits*testRepoUser + (testRepoCommits - 1), collection.getEdges().collect().size());
 
-		String filePath = pathToRepo + "test2.txt";
+		String filePath = pathToRepo + "testUpdate.txt";
 		FileWriter fw = new FileWriter(filePath);
 		git.add().addFilepattern(filePath).call();
 		RevCommit commit = git.commit().setMessage("Updated Commit test").call();
+		fw.close();
+		String filePathBranch = pathToRepo + "testBranch.txt";
+		FileWriter fwBranch = new FileWriter(filePathBranch);
+		git.branchCreate().setName("testBranch").call();
+		git.checkout().setName("testBranch").call();
+		RevCommit branchCommit = git.commit().setMessage("commit on new branch").call();
+		fwBranch.close();
 
 		Properties commitProperties = new Properties();
 		commitProperties.set("name", commit.name());
@@ -230,8 +239,8 @@ public class GradoopFillerTest {
 
 		collection = gf.updateGraphCollection(pathToRepo, collection);
 
-		//Since we made a new commit there should be one more
-		assertEquals(testRepoBranches + testRepoCommits + testRepoUser + 1, collection.getVertices().collect().size());
+		//Since we made 2 new commits and 1 new branch there should be 3 more
+		assertEquals(testRepoBranches + testRepoCommits + testRepoUser + 3, collection.getVertices().collect().size());
 		boolean foundNewVertex = false;
 		List<Vertex> updatedVertices = collection.getVertices().collect();
 		for (Vertex v : updatedVertices) {
