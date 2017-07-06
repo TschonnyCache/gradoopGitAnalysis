@@ -201,12 +201,39 @@ public class GradoopFiller implements ProgramDescription {
 		return addVertexToDataSet(v, ds);
 	}
 
+	public DataSet<Vertex> addUserVertexToDataSet(RevCommit c, GraphCollection gc, DataSet<Vertex> ds) throws Exception{
+		PersonIdent user = c.getAuthorIdent();
+		Vertex v = getVertexFromDataSet(user.getEmailAddress(), userVertexLabel, userVertexFieldEmail, gc.getVertices());
+		if(v == null){
+            Properties props = new Properties();
+            props.set("name", user.getName());
+            props.set("email", user.getEmailAddress());
+            props.set("when", user.getWhen().getTime());
+            props.set("timezone", user.getTimeZone().getRawOffset());
+            props.set("timezoneOffset", user.getTimeZoneOffset());
+            v = config.getVertexFactory().createVertex(userVertexLabel, props);
+		}
+		return addVertexToDataSet(v, ds);
+	}
+
 	public DataSet<Vertex> addBranchVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
 		Vertex v = getVertexFromGraph(g, branchVertexLabel, branchVertexFieldName, c.getName());
 		if(v == null){
             Properties props = new Properties();
             props.set("name", c.getName());
             v = config.getVertexFactory().createVertex(branchVertexLabel, props);
+		}
+		return addVertexToDataSet(v, ds);
+	}
+
+	public DataSet<Vertex> addCommitVertexToDataSet(RevCommit c, GraphCollection gc, DataSet<Vertex> ds) throws Exception{
+		Vertex v = getVertexFromDataSet(c.getName(),commitVertexLabel,commitVertexFieldName,gc.getVertices());
+		if(v == null){
+            Properties props = new Properties();
+            props.set("name", c.name());
+            props.set("time", c.getCommitTime());
+            props.set("message", c.getShortMessage());
+            v = config.getVertexFactory().createVertex(commitVertexLabel, props);
 		}
 		return addVertexToDataSet(v, ds);
 	}
@@ -222,6 +249,13 @@ public class GradoopFiller implements ProgramDescription {
 		}
 		return addVertexToDataSet(v, ds);
 	}
+
+	public DataSet<Edge> addEdgeToBranchToDataSet(RevCommit c, Ref branch, DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception{
+		Vertex source = getVertexFromDataSet(c.getName(), commitVertexLabel, commitVertexFieldName, vertices);
+		Vertex target = getVertexFromDataSet(branch.getName(), commitVertexLabel, commitVertexFieldName, vertices);
+		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, source.getId(), target.getId());
+		return addEdgeToDataSet(e, edges);
+	}
 	
 	public DataSet<Edge> addEdgeToBranchToDataSet(RevCommit c, Ref branch, LogicalGraph g, DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception{
 		Vertex source = getVertexFromGraph(g, commitVertexLabel, commitVertexFieldName, c.getName());
@@ -233,6 +267,21 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 	
+
+	public DataSet<Edge> addEdgeToUserToDataSet(RevCommit c, GraphCollection gc, DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception{
+		Vertex source = getVertexFromDataSet(c.getName(),commitVertexLabel,commitVertexFieldName,gc.getVertices());
+		if(source == null){
+			source = getVertexFromDataSet(c.getName(), commitVertexLabel, commitVertexFieldName, vertices);
+		}
+		PersonIdent user = c.getAuthorIdent();
+		Vertex target = getVertexFromDataSet(user.getEmailAddress(), userVertexLabel, userVertexFieldEmail, gc.getVertices());
+		if(target == null){
+			target = getVertexFromDataSet(c.getAuthorIdent().getEmailAddress(), userVertexLabel, userVertexFieldEmail, vertices);
+		}
+		Edge e = config.getEdgeFactory().createEdge(commitToUserEdgeLabel, source.getId(),target.getId());
+		return addEdgeToDataSet(e, edges);
+	}
+
 	public DataSet<Edge> addEdgeToUserToDataSet(RevCommit c, LogicalGraph g, DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception{
 		Vertex source = getVertexFromGraph(g, commitVertexLabel, commitVertexFieldName, c.getName()); 
 		if(source == null){
@@ -246,6 +295,14 @@ public class GradoopFiller implements ProgramDescription {
 		return addEdgeToDataSet(e, edges);
 	}
 	
+	public DataSet<Edge> addEdgeFromPreviousToLatestCommit(RevCommit commit,RevCommit previousCommit, DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception{
+		Vertex source = getVertexFromDataSet(commit.getName(), commitVertexLabel, commitVertexFieldName, vertices);
+		Vertex target = getVertexFromDataSet(previousCommit.getName(), commitVertexLabel, commitVertexFieldName, vertices);
+		Edge e = config.getEdgeFactory().createEdge(commitToNextCommitEdgeLabel, source.getId(),target.getId());
+		//returning the new edges dataSet containing the newly created edge
+		return addEdgeToDataSet(e, edges);
+	}
+
 	public DataSet<Edge> addEdgeFromPreviousToLatestCommit(RevCommit commit,RevCommit previousCommit, LogicalGraph g, DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception{
 		// trying to retrieve the commit from the existing graph. this could happen if the commit was introduced to the branch via merging another branch which contained the commit into the branch
 		Vertex source = getVertexFromGraph(g, commitVertexLabel, commitVertexFieldName, commit.getName()); 
@@ -413,15 +470,18 @@ public class GradoopFiller implements ProgramDescription {
 					updatedGraphHead = updatedGraphHead.union(newGraphHead);
 					updatedGraphs = GraphCollection.fromDataSets(updatedGraphHead, updatedVertices, updatedEdges, config);
 				} else { // Create new branch
-					createVertexFromBranch(branch);
+					LogicalGraph newBranchGraph = LogicalGraph.createEmptyGraph(config);
+					DataSet<Edge> newEdges = newBranchGraph.getEdges();
+					Vertex branchVertex = createVertexFromBranch(branch);
+					DataSet<Vertex> newVertices = config.getExecutionEnvironment().fromElements(branchVertex);
 					try (RevWalk revWalk = new RevWalk(repository)) {
 						revWalk.markStart(revWalk.parseCommit(branch.getObjectId()));
 						RevCommit commit = revWalk.next();
 						while (commit != null) {
-							createVertexFromCommit(commit);
-							createVertexFromUser(commit.getAuthorIdent());
-							createEdgeToBranch(commit, branch);
-							createEdgeToUser(commit);
+							newVertices = addCommitVertexToDataSet(commit, existingBranches, newVertices);
+							newVertices = addUserVertexToDataSet(commit, existingBranches, newVertices);
+							newEdges = addEdgeToBranchToDataSet(commit, branch, newEdges, newVertices);
+							newEdges = addEdgeToUserToDataSet(commit, existingBranches, newEdges, newVertices);
 							commit = revWalk.next();
 						}
 					} catch (RevisionSyntaxException e) {
@@ -441,8 +501,8 @@ public class GradoopFiller implements ProgramDescription {
 					props.set("name", branch.getName());
 					props.set(GitAnalyzer.latestCommitHashLabel, latestCommitHash);
 					GraphHead gh = config.getGraphHeadFactory().createGraphHead(GitAnalyzer.branchGraphHeadLabel, props);
-					LogicalGraph newGraph = createGraphFromCollectionsAndAddThemToHead(gh,vertices.values(), edges.values(), config);
-					updatedGraphs = existingBranches.union(GraphCollection.fromGraph(newGraph));
+					newBranchGraph = createGraphFromDataSetsAndAddThemToHead(gh,newVertices, newEdges, config);
+					updatedGraphs = existingBranches.union(GraphCollection.fromGraph(newBranchGraph));
 				}
 			}
 			git.close();
