@@ -258,8 +258,7 @@ public class GradoopFillerTest {
 	public void getVertexFromGraphTest() throws Exception {
 		GitAnalyzer analyzer = new GitAnalyzer();
 		GradoopFiller gf = new GradoopFiller(config, analyzer);
-		Vertex v = gf.getVertexFromGraph(testGraph, GradoopFiller.userVertexLabel, GradoopFiller.userVertexFieldEmail,
-				testGraphUserEmail);
+		Vertex v = gf.getVertexFromGraph(testGraphUserEmail, GradoopFiller.userVertexLabel, GradoopFiller.userVertexFieldEmail, testGraph);
 		assertNotNull(v);
 		assertEquals(testGraphUserEmail, v.getPropertyValue(GradoopFiller.userVertexFieldEmail).getString());
 	}
