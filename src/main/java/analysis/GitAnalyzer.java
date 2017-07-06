@@ -364,7 +364,7 @@ public class GitAnalyzer implements Serializable {
 		GitAnalyzer ga = new GitAnalyzer();
 //		GraphCollection branchGroupedGraph = ga.transformBranchesToSubgraphs(graph, gradoopConf);
 		LogicalGraph userGroupedCommitsGraph = ga.groupCommitsByUser(graph, gradoopConf);
-		DataSink jsonSink = new JSONDataSink("./out", gradoopConf);
+		DataSink jsonSink = new JSONDataSink("./json", gradoopConf);
 		userGroupedCommitsGraph.writeTo(jsonSink);
 		env.execute();
 	}
