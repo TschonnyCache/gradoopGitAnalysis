@@ -351,7 +351,7 @@ public class GitAnalyzer implements Serializable {
 	
 	/**
 	 * @param the input graph
-	 * @param config the config needet to create a new LogicalGraph as output.
+	 * @param config the config needed to create a new LogicalGraph as output.
 	 * @return A subgraph containing only commit vertices, with the corresponding users gradoopId
 	 */
 	private LogicalGraph annotateUserAndFilterCommits(LogicalGraph graph, GradoopFlinkConfig config){
