@@ -39,6 +39,10 @@ import org.gradoop.flink.util.GradoopFlinkConfig;
 
 import gradoopify.GradoopFiller;
 
+/**
+ * @author jonas
+ *
+ */
 public class GitAnalyzer implements Serializable {
 
 	private static final long serialVersionUID = 5400004312044745133L;
@@ -239,6 +243,10 @@ public class GitAnalyzer implements Serializable {
 		}
 	}
 
+	/**
+	 * @param g input graph
+	 * @return the input graph with the @param branchName as a property with the key "name" on the graph head
+	 */
 	public LogicalGraph setBranchLabelAsGraphHeadProperty(LogicalGraph g, String branchName){
 			LogicalGraph result = g.transformGraphHead(new TransformationFunction<GraphHead>() {
 
@@ -253,7 +261,13 @@ public class GitAnalyzer implements Serializable {
 		return result;
 	}
 
+	/**
+	 * For a given GraphCollection @param gc in which the subgraphs represent branches
+	 * @return the subgraph with the @param branchName as property "name" on the graphHead
+	 * @throws Exception null pointer exceptions occur if the input graph colleciton is empty
+	 */
 	public LogicalGraph getGraphFromCollectionByBranchName(GraphCollection gc, String branchName) throws Exception {
+		// getting the graph head with the given branch name
 		List<GraphHead> graphHead = gc.select(new FilterFunction<GraphHead>() {
 			@Override
 			public boolean filter(GraphHead entity) throws Exception {
@@ -267,19 +281,29 @@ public class GitAnalyzer implements Serializable {
 			return null;
 		}
 		GradoopId graphID = graphHead.get(0).getId();
+		//extracting the corresponding vertices and edges from the input graph collection
 		DataSet<Vertex> vertices = gc.getVertices().filter(new InGraph<>(graphID));
 		DataSet<Edge> edges = gc.getEdges().filter(new InGraph<>(graphID));
 		List<Vertex> test1 = vertices.collect();
 		List<Edge> test2 = edges.collect();
+		//creating a new graph from the graph head, vertices and edges
 		LogicalGraph result = LogicalGraph.fromDataSets(gc.getConfig().getExecutionEnvironment().fromElements(graphHead.get(0)), vertices, edges, gc.getConfig());
 		return result;
 	}
 
+	/**
+	 * @param g the input graph, representing a branch subgraph
+	 * @return the input graph, with the name of the latest commit as a property on the graph head
+	 * @throws Exception
+	 */
 	public LogicalGraph addLatestCommitOnThisBranchAsProperty(LogicalGraph g) throws Exception {
 		MinVertexProperty mvp = new MinVertexProperty("time");
+		// annotating the smallest value of the property "time" of all vertices on the graph head 
 		LogicalGraph withMinTime = g.aggregate(mvp);
+		//extracting the value of the smallest time from the graphhead
 		int minTime = withMinTime.getGraphHead().collect().get(0).getPropertyValue(mvp.getAggregatePropertyKey())
 				.getInt();
+		//getting the commit with this commit time
 		LogicalGraph filtered = g.vertexInducedSubgraph(new FilterFunction<Vertex>() {
 
 			@Override
@@ -293,6 +317,7 @@ public class GitAnalyzer implements Serializable {
 			}
 		});
 		String latestCommitHash = filtered.getVertices().collect().get(0).getPropertyValue("name").getString();
+		//annotating the name/hash of the latest commit on the graph head
 		LogicalGraph res = g.transformGraphHead(new TransformationFunction<GraphHead>() {
 
 			@Override
@@ -305,6 +330,13 @@ public class GitAnalyzer implements Serializable {
 		return res;
 	}
 	
+	/**
+	 * For a given @param graph, this function will group all commits depending on who the author is.
+	 * The @return result is a LogicalGraph containing only n vertices, where n is the number users
+	 * in the repository. These vertices represent the groups of commits and have a proper
+	 * @param config needed to call annotateUserAndFilterCommits
+	 * 
+	 */
 	public LogicalGraph groupCommitsByUser(LogicalGraph graph, GradoopFlinkConfig config) {
 		graph = annotateUserAndFilterCommits(graph, config);
 		Grouping operator = new Grouping.GroupingBuilder() 
@@ -317,8 +349,16 @@ public class GitAnalyzer implements Serializable {
 		return grouped;
 	}
 	
+	/**
+	 * @param the input graph
+	 * @param config the config needet to create a new LogicalGraph as output.
+	 * @return A subgraph containing only commit vertices, with the corresponding users gradoopId
+	 */
 	private LogicalGraph annotateUserAndFilterCommits(LogicalGraph graph, GradoopFlinkConfig config){
 		DataSet<Vertex> vertices = graph.getVertices();
+		//First we create tuples of commits and their corresponding user vertex gradoop id
+		//This is done by joining the vertices with the edges and again joined with the vertices
+		//so the resulting triples state vertex has an edge pointing to a vertex
 		DataSet<Tuple2<Vertex,Vertex>> commitAndUserVertexTuples = vertices
 			.join(graph.getEdges())
 			.where(new Id<Vertex>())
@@ -337,12 +377,13 @@ public class GitAnalyzer implements Serializable {
 	
 				@Override
 				public void join(Tuple2<Vertex, Edge> first, Vertex second, Collector<Tuple2<Vertex,Vertex>> out) throws Exception {
+					//here we select only those tuples where a commit vertex is in relation to a user vertex
 					if (first.f0.getLabel().equals(GradoopFiller.commitVertexLabel) && second.getLabel().equals(GradoopFiller.userVertexLabel)){
 						out.collect(new Tuple2<Vertex,Vertex>(first.f0,second));
 					}
 				}
 			});
-		
+		//here we map the tuples containing a commit and the corresponding user to only the commit vertices with a user vertex gradoop id as a property
 		DataSet<Vertex> annotatedCommits = commitAndUserVertexTuples.map(new MapFunction<Tuple2<Vertex,Vertex>, Vertex>() {
 
 			@Override
