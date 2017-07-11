@@ -52,7 +52,7 @@ public class GitAnalyzer implements Serializable {
 	public static final String latestCommitHashLabel = "latestCommitHash";
 
 	/**
-	 * Aggregates the users using {@ 
+	 * Aggregates the users using {@link UserCount} 
 	 * @param graph
 	 * @return
 	 */
