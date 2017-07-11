@@ -31,6 +31,7 @@ import org.gradoop.flink.model.impl.LogicalGraph;
 import org.gradoop.flink.model.impl.functions.epgm.Id;
 import org.gradoop.flink.model.impl.functions.graphcontainment.InGraph;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.count.Count;
+import org.gradoop.flink.model.impl.operators.aggregation.functions.max.MaxVertexProperty;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.min.MinVertexProperty;
 import org.gradoop.flink.model.impl.operators.grouping.Grouping;
 import org.gradoop.flink.model.impl.operators.grouping.GroupingStrategy;
@@ -297,8 +298,9 @@ public class GitAnalyzer implements Serializable {
 	 * @throws Exception
 	 */
 	public LogicalGraph addLatestCommitOnThisBranchAsProperty(LogicalGraph g) throws Exception {
-		MinVertexProperty mvp = new MinVertexProperty("time");
-		// annotating the smallest value of the property "time" of all vertices on the graph head 
+		MaxVertexProperty mvp = new MaxVertexProperty("time");
+		// annotating the biggest value of the property "time" of all vertices on the graph head 
+		// as it its the time of the latest commit
 		LogicalGraph withMinTime = g.aggregate(mvp);
 		//extracting the value of the smallest time from the graphhead
 		int minTime = withMinTime.getGraphHead().collect().get(0).getPropertyValue(mvp.getAggregatePropertyKey())
