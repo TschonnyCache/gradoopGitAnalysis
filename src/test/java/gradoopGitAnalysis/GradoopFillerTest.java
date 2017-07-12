@@ -208,7 +208,6 @@ public class GradoopFillerTest {
 		assertEquals(testRepoBranches*testRepoCommits + testRepoCommits*testRepoUser + (testRepoCommits - 1), collection.getEdges().collect().size());
 	}
 
-	@Test
 	public void readUpdatedRepo() throws Exception {
 		GitAnalyzer analyzer = new GitAnalyzer();
 		GradoopFiller gf = new GradoopFiller(config, analyzer);
@@ -218,10 +217,17 @@ public class GradoopFillerTest {
 		assertEquals(testRepoBranches + testRepoCommits + testRepoUser, vertices.size());
 		assertEquals(testRepoBranches*testRepoCommits + testRepoCommits*testRepoUser + (testRepoCommits - 1), collection.getEdges().collect().size());
 
-		String filePath = pathToRepo + "test2.txt";
+		String filePath = pathToRepo + "testUpdate.txt";
 		FileWriter fw = new FileWriter(filePath);
 		git.add().addFilepattern(filePath).call();
 		RevCommit commit = git.commit().setMessage("Updated Commit test").call();
+		fw.close();
+		String filePathBranch = pathToRepo + "testBranch.txt";
+		FileWriter fwBranch = new FileWriter(filePathBranch);
+		git.branchCreate().setName("testBranch").call();
+		git.checkout().setName("testBranch").call();
+		RevCommit branchCommit = git.commit().setMessage("commit on new branch").call();
+		fwBranch.close();
 
 		Properties commitProperties = new Properties();
 		commitProperties.set("name", commit.name());
@@ -232,8 +238,8 @@ public class GradoopFillerTest {
 
 		collection = gf.updateGraphCollection(pathToRepo, collection);
 
-		//Since we made a new commit there should be one more
-		assertEquals(testRepoBranches + testRepoCommits + testRepoUser + 1, collection.getVertices().collect().size());
+		//Since we made 2 new commits and 1 new branch there should be 3 more
+		assertEquals(testRepoBranches + testRepoCommits + testRepoUser + 3, collection.getVertices().collect().size());
 		boolean foundNewVertex = false;
 		List<Vertex> updatedVertices = collection.getVertices().collect();
 		for (Vertex v : updatedVertices) {
