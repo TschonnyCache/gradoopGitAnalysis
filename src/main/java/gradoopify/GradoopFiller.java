@@ -473,6 +473,7 @@ public class GradoopFiller implements ProgramDescription {
 					LogicalGraph newBranchGraph = LogicalGraph.createEmptyGraph(config);
 					DataSet<Edge> newEdges = newBranchGraph.getEdges();
 					Vertex branchVertex = createVertexFromBranch(branch);
+					RevCommit previousCommit = null;
 					DataSet<Vertex> newVertices = config.getExecutionEnvironment().fromElements(branchVertex);
 					try (RevWalk revWalk = new RevWalk(repository)) {
 						revWalk.markStart(revWalk.parseCommit(branch.getObjectId()));
@@ -483,6 +484,10 @@ public class GradoopFiller implements ProgramDescription {
 							newEdges = addEdgeToBranchToDataSet(commit, branch, newEdges, newVertices);
 							newEdges = addEdgeToUserToDataSet(commit, existingBranches, newEdges, newVertices);
 							commit = revWalk.next();
+							if (previousCommit != null) {
+								newEdges = addEdgeFromPreviousToLatestCommit(commit,previousCommit,branchGraph, newEdges, newVertices);
+							}
+							previousCommit = commit;
 						}
 					} catch (RevisionSyntaxException e) {
 						// TODO Auto-generated catch block
