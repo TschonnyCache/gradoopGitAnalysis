@@ -18,6 +18,7 @@ import org.apache.flink.util.Collector;
 import org.gradoop.common.model.impl.id.GradoopId;
 import org.gradoop.common.model.impl.id.GradoopIdList;
 import org.gradoop.common.model.impl.pojo.Edge;
+import org.gradoop.common.model.impl.pojo.GraphElement;
 import org.gradoop.common.model.impl.pojo.GraphHead;
 import org.gradoop.common.model.impl.pojo.Vertex;
 import org.gradoop.common.model.impl.properties.Properties;
@@ -32,7 +33,6 @@ import org.gradoop.flink.model.impl.functions.epgm.Id;
 import org.gradoop.flink.model.impl.functions.graphcontainment.InGraph;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.count.Count;
 import org.gradoop.flink.model.impl.operators.aggregation.functions.max.MaxVertexProperty;
-import org.gradoop.flink.model.impl.operators.aggregation.functions.min.MinVertexProperty;
 import org.gradoop.flink.model.impl.operators.grouping.Grouping;
 import org.gradoop.flink.model.impl.operators.grouping.GroupingStrategy;
 import org.gradoop.flink.model.impl.operators.grouping.functions.aggregation.CountAggregator;
@@ -136,8 +136,11 @@ public class GitAnalyzer implements Serializable {
 
 						@Override
 						public void join(GradoopId id, Edge e, Collector<Edge> out) throws Exception {
-							if(e.getSourceId().equals(id)){
-								out.collect(e);
+							//We do not want to add edges to other branches
+							if(!(e.getLabel().equals(GradoopFiller.commitToBranchEdgeLabel) && !e.getTargetId().equals(branch.getId()))){
+                                if(e.getSourceId().equals(id)){
+                                    out.collect(e);
+                                }
 							}
 						}
 					});
@@ -152,8 +155,11 @@ public class GitAnalyzer implements Serializable {
 
 						@Override
 						public void join(GradoopId id, Edge e, Collector<Edge> out) throws Exception {
-							if(e.getTargetId().equals(id)){
-								out.collect(e);
+							//We do not want to add edges to other branches
+							if(!(e.getLabel().equals(GradoopFiller.commitToBranchEdgeLabel) && !e.getTargetId().equals(branch.getId()))){
+                                if(e.getTargetId().equals(id)){
+                                    out.collect(e);
+                                }
 							}
 						}
 					});
@@ -181,17 +187,27 @@ public class GitAnalyzer implements Serializable {
         //Fix bug that vertices with same Ids have different GradoopIdLists by joining them
         for(int i = 1; i < resGraphs.size(); i++){
         	LogicalGraph g = resGraphs.get(i);
-        	tmpVertices = tmpVertices
-        			.coGroup(g.getVertices())
-        			.where(new Id<Vertex>())
-        			.equalTo(new Id<Vertex>())
-        			.with(new CoGroupFunction<Vertex,Vertex,Vertex>() {
+        	tmpVertices = joinDataSetsAndMergeGradoopIdLists(tmpVertices, g.getVertices());
+            tmpEdges = joinDataSetsAndMergeGradoopIdLists(tmpEdges, g.getEdges());
+        	tmpGraphHeads.add(g.getGraphHead().collect().get(0));
+        }
+        GraphCollection result = GraphCollection.fromDataSets(config.getExecutionEnvironment().fromCollection(tmpGraphHeads), tmpVertices, tmpEdges, config);
+		return result;
+	}
+	
+	
+	public<T extends GraphElement> DataSet<T> joinDataSetsAndMergeGradoopIdLists(DataSet<T> ds1, DataSet<T> ds2){
+        	ds1 = ds1
+        			.coGroup(ds2)
+        			.where(new Id<T>())
+        			.equalTo(new Id<T>())
+        			.with(new CoGroupFunction<T,T,T>() {
 
 						@Override
-						public void coGroup(Iterable<Vertex> first, Iterable<Vertex> second, Collector<Vertex> out) throws Exception {
+						public void coGroup(Iterable<T> first, Iterable<T> second, Collector<T> out) throws Exception {
 							//If any Iterable is empty we just return the other set
-							Iterator<Vertex> firstIt = first.iterator();
-							Iterator<Vertex> secondIt = second.iterator();
+							Iterator<T> firstIt = first.iterator();
+							Iterator<T> secondIt = second.iterator();
 							if(!firstIt.hasNext()){
 								while(secondIt.hasNext()){
 									out.collect(secondIt.next());
@@ -203,9 +219,9 @@ public class GitAnalyzer implements Serializable {
 							}else{
                                 //Else we join the GradoopIdLists
                                 while(firstIt.hasNext()){
-                                    Vertex v1 = firstIt.next();
+                                    T v1 = firstIt.next();
                                     while(secondIt.hasNext()){
-                                        Vertex v2 = secondIt.next();
+                                        T v2 = secondIt.next();
                                         if(v1.getId().equals(v2.getId())){
                                             GradoopIdList firstIdList = v1.getGraphIds();
                                             for(GradoopId id: v2.getGraphIds()){
@@ -224,15 +240,7 @@ public class GitAnalyzer implements Serializable {
                             }
 						}
 					});
-
-            tmpEdges = tmpEdges
-                .union(g.getEdges());
-        	
-        	tmpGraphHeads.add(g.getGraphHead().collect().get(0));
-        }
-        tmpVertices.print();
-        GraphCollection result = GraphCollection.fromDataSets(config.getExecutionEnvironment().fromCollection(tmpGraphHeads), tmpVertices, tmpEdges, config);
-		return result;
+        	return ds1;
 	}
 	
 	public class EdgeSourceTargetIds implements FlatMapFunction<Edge, GradoopId>{
@@ -405,10 +413,11 @@ public class GitAnalyzer implements Serializable {
 		GradoopFiller gf = new GradoopFiller(gradoopConf);
 		LogicalGraph graph = gf.parseGitRepoIntoGraph(".");
 		GitAnalyzer ga = new GitAnalyzer();
-//		GraphCollection branchGroupedGraph = ga.transformBranchesToSubgraphs(graph, gradoopConf);
-		LogicalGraph userGroupedCommitsGraph = ga.groupCommitsByUser(graph, gradoopConf);
+		gradoopConf.getExecutionEnvironment().setParallelism(1);
+		GraphCollection branchGroupedGraph = ga.transformBranchesToSubgraphs(graph, gradoopConf);
+//		LogicalGraph userGroupedCommitsGraph = ga.groupCommitsByUser(graph, gradoopConf);
 		DataSink jsonSink = new JSONDataSink("./json", gradoopConf);
-		userGroupedCommitsGraph.writeTo(jsonSink);
+		branchGroupedGraph.writeTo(jsonSink);
 		env.execute();
 	}
 }

@@ -9,6 +9,7 @@ import java.util.List;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.gradoop.common.model.impl.id.GradoopId;
+import org.gradoop.common.model.impl.id.GradoopIdList;
 import org.gradoop.common.model.impl.pojo.Edge;
 import org.gradoop.common.model.impl.pojo.GraphHead;
 import org.gradoop.common.model.impl.pojo.Vertex;
@@ -105,7 +106,7 @@ public class GitAnalyzerTest {
 		edgesForg1 = addEdgeDataSetToGraphHead(gh1,edgesForg1);
 		edgesForg2 = addEdgeDataSetToGraphHead(gh2,edgesForg2);
 		DataSet<Vertex> verticesForCollection = verticesForg1.union(verticesForg2);
-		DataSet<Edge> edgesForCollection = edgesForg1.union(edgesForg2);
+		DataSet<Edge> edgesForCollection = new GitAnalyzer().joinDataSetsAndMergeGradoopIdLists(edgesForg1, edgesForg2);
 		
 		List<GraphHead> graphHeadsForCollection = Arrays.asList(gh1,gh2);
 		graphHeads = graphHeadsForCollection.size();
@@ -126,6 +127,36 @@ public class GitAnalyzerTest {
           .withForwardedFields("id;sourceId;targetId;label;properties");
         return edges;
 	}
+	
+	@Test
+	public void joinDataSetsAndMergeGradoopIdListsTest() throws Exception{
+		GradoopId id1 = GradoopId.get();
+		GradoopIdList g1List = new GradoopIdList();
+		GradoopId listId1 = GradoopId.get();
+		g1List.add(listId1);
+		Properties p1 = new Properties();
+		p1.set("testprop", "testValue");
+		Vertex v1 = new Vertex(id1, "test", p1, g1List);
+		GradoopIdList g2List = new GradoopIdList();
+		GradoopId listId2 = GradoopId.get();
+		g2List.add(listId2);
+		Vertex v2 = new Vertex(id1, "test", p1, g2List);
+		String v3Label = "test2";
+		Vertex v3 = new Vertex(GradoopId.get(), v3Label, new Properties(), new GradoopIdList());
+		DataSet<Vertex> vertices1 = config.getExecutionEnvironment().fromElements(v1,v3);
+		DataSet<Vertex> vertices2 = config.getExecutionEnvironment().fromElements(v2);
+		DataSet<Vertex> results = new GitAnalyzer().joinDataSetsAndMergeGradoopIdLists(vertices1, vertices2);
+		List<Vertex> resultsList = results.collect();
+		//Sort by Label to know that merged v1/v2 should be at index 0 and v3 at index 1
+		resultsList.sort((vertex1, vertex2) -> vertex1.getLabel().compareTo(vertex2.getLabel()));
+		assertEquals(2, resultsList.size());
+		GradoopIdList mergedIdList = new GradoopIdList();
+		mergedIdList.addAll(g1List);
+		mergedIdList.addAll(g2List);
+		assertEquals(mergedIdList, resultsList.get(0).getGraphIds());
+		assertEquals(v3Label, resultsList.get(1).getLabel());
+
+	}
 
 	@Test
 	public void transformBranchesToSubgraphsTest() throws Exception{
@@ -133,17 +164,22 @@ public class GitAnalyzerTest {
 		List<GraphHead> ghs = transformed.getGraphHeads().collect();
 		List<Vertex> tmvertices = transformed.getVertices().collect();
 		List<Edge> tmedges = transformed.getEdges().collect();
-		List<GraphHead> tmghs = transformed.getGraphHeads().collect();
-		assertEquals(testGraph.getVertices().count(),transformed.getVertices().collect().size());
-		assertEquals(branchUpEdges + branchEdges,transformed.getEdges().collect().size());
+		assertEquals(testGraph.getVertices().count(),tmvertices.size());
+		//-1 because they both share the edge from the commit to the user
+		//if there are more commits in the testGraph this needs to be changed
+		//TODO remove this magic number and count the commit vertices
+		assertEquals(branchUpEdges + branchEdges - 1,tmedges.size());
 		assertEquals(testCollection.getGraphHeads().count(),ghs.size());
 		for(GraphHead gh: ghs){
 			assertEquals(latestCommitHash, gh.getPropertyValue(GitAnalyzer.latestCommitHashLabel).getString());
 			List<Vertex> vertices = transformed.getVertices().filter(new InGraph<>(gh.getId())).collect();
+			List<Edge> edges = transformed.getEdges().filter(new InGraph<>(gh.getId())).collect();
 			if(gh.getPropertyValue("name").getString().equals(branchName)){
 				assertEquals(branchVertices, vertices.size());
+				assertEquals(branchEdges, edges.size());
 			}else if(gh.getPropertyValue("name").getString().equals(branchUpName)){
 				assertEquals(branchUpVertices, vertices.size());
+				assertEquals(branchUpEdges, edges.size());
 			}else{
 				assertTrue("Unknown branch after splitting graph into branches",false);
 			}
