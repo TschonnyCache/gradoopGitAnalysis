@@ -139,27 +139,7 @@ public class GradoopFiller implements ProgramDescription {
 	}
 	
 	public Vertex getVertexFromGraph(LogicalGraph graph, String label, String propertyKey, String identifier) throws Exception{
-		LogicalGraph filtered = graph.vertexInducedSubgraph(new FilterFunction<Vertex>() {
-
-			@Override
-			public boolean filter(Vertex v) throws Exception {
-				if (v.getLabel().equals(label)) {
-					if (v.hasProperty(propertyKey) && v.getPropertyValue(propertyKey).getString().equals(identifier)) {
-						return true;
-					}
-				}
-				return false;
-			}
-		});
-		if(filtered == null || filtered.getVertices().count()==0){
-			System.err.println("No vertices of type " + label + " with " + propertyKey + " = " + identifier + " found in given graph! Returning null");
-			return null;
-		}
-		if(filtered.getVertices().count()>1){
-			System.err.println("Too many vertices of type " + label + " with " + propertyKey + " = " + identifier + " found in given graph! Returning null");
-			return null;
-		}
-		return filtered.getVertices().collect().get(0);
+		return getVertexFromDataSet(identifier, label, propertyKey, graph.getVertices());
 	}
 	
 	public Vertex getVertexFromDataSet(String identifier, String label, String propertyKey, DataSet<Vertex> ds) throws Exception{
@@ -175,15 +155,16 @@ public class GradoopFiller implements ProgramDescription {
 				return false;
 			}
 		});
-		if(filtered == null || filtered.count()==0){
+		List<Vertex>filteredList = filtered.collect();
+		if(filtered == null || filteredList.size()==0){
 			System.err.println("No vertices of type " + label + " with " + propertyKey + " = " + identifier + " found in given dataset! Returning null");
 			return null;
 		}
-		if(filtered.count()>1){
+		if(filteredList.size()>1){
 			System.err.println("Too many vertices of type " + label + " with " + propertyKey + " = " + identifier + " found in given dataset! Returning null");
 			return null;
 		}
-		return filtered.collect().get(0);
+		return filteredList.get(0);
 	}
 	
 	public DataSet<Vertex> addUserVertexToDataSet(RevCommit c, LogicalGraph g, DataSet<Vertex> ds) throws Exception{
@@ -252,7 +233,7 @@ public class GradoopFiller implements ProgramDescription {
 
 	public DataSet<Edge> addEdgeToBranchToDataSet(RevCommit c, Ref branch, DataSet<Edge> edges, DataSet<Vertex> vertices) throws Exception{
 		Vertex source = getVertexFromDataSet(c.getName(), commitVertexLabel, commitVertexFieldName, vertices);
-		Vertex target = getVertexFromDataSet(branch.getName(), commitVertexLabel, commitVertexFieldName, vertices);
+		Vertex target = getVertexFromDataSet(branch.getName(), branchVertexLabel, branchVertexFieldName, vertices);
 		Edge e = config.getEdgeFactory().createEdge(commitToBranchEdgeLabel, source.getId(), target.getId());
 		return addEdgeToDataSet(e, edges);
 	}
@@ -435,7 +416,6 @@ public class GradoopFiller implements ProgramDescription {
 						RevCommit commit = revWalk.next();
 						// while the revwalk has not reached its end or the next commit is not the latest commit in the existing branch subgraph
 						while (commit != null && !commit.getName().toString().equals(latestCommitHash)) {
-							System.out.println(commit.getShortMessage());
 							newVertices = addCommitVertexToDataSet(commit, branchGraph, newVertices);
 							newVertices = addUserVertexToDataSet(commit, branchGraph, newVertices);
 							newEdges = addEdgeToBranchToDataSet(commit, branch, branchGraph, newEdges, newVertices);
